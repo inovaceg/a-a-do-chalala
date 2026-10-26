@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Bike, Plus, RefreshCw, ShieldCheck, UserRound, Users } from "lucide-react";
+import { Bike, ClipboardList, Plus, RefreshCw, ShieldCheck, UserRound, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSessionContext } from "@/components/SessionContextProvider";
 import CourierManagement from "@/components/CourierManagement";
+import SalesDeletionLogs from "@/components/SalesDeletionLogs";
 import "./registrations-management.css";
 
 type TeamProfile = { id: string; display_name: string; email: string; role: "admin" | "operator"; is_active: boolean; created_at: string };
@@ -58,6 +59,6 @@ function TeamUsersManagement() {
 }
 
 export default function TeamManagement() {
-  const [tab, setTab] = useState<"team" | "couriers">("team");
-  return <div className="registrations-management"><div className="registrations-tabs" role="tablist" aria-label="Cadastros"><button className={tab === "team" ? "active" : ""} role="tab" aria-selected={tab === "team"} onClick={() => setTab("team")}><Users size={16}/> Equipe e usuários</button><button className={tab === "couriers" ? "active" : ""} role="tab" aria-selected={tab === "couriers"} onClick={() => setTab("couriers")}><Bike size={16}/> Motoboys</button></div>{tab === "team" ? <TeamUsersManagement/> : <CourierManagement/>}</div>;
+  const [tab, setTab] = useState<"team" | "couriers" | "logs">("team");
+  return <div className="registrations-management"><div className="registrations-tabs" role="tablist" aria-label="Cadastros"><button className={tab === "team" ? "active" : ""} role="tab" aria-selected={tab === "team"} onClick={() => setTab("team")}><Users size={16}/> Equipe e usuários</button><button className={tab === "couriers" ? "active" : ""} role="tab" aria-selected={tab === "couriers"} onClick={() => setTab("couriers")}><Bike size={16}/> Motoboys</button><button className={tab === "logs" ? "active" : ""} role="tab" aria-selected={tab === "logs"} onClick={() => setTab("logs")}><ClipboardList size={16}/> Logs</button></div>{tab === "team" ? <TeamUsersManagement/> : tab === "couriers" ? <CourierManagement/> : <SalesDeletionLogs/>}</div>;
 }
