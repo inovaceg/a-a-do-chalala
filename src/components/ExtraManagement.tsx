@@ -3,7 +3,7 @@ import { Check, Pencil, Plus, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import "./extra-management.css";
 
-type Extra = { id?: string; name: string; price: number; cost_price: number; is_active?: boolean };
+type Extra = { id?: string; name: string; price: number; cost_price?: number; is_active?: boolean };
 const money = (value: number) => Number(value).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 export default function ExtraManagement({ active, extras, onSaved }: { active: boolean; extras: Extra[]; onSaved: (extra: Extra) => void }) {

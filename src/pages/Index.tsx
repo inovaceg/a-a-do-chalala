@@ -13,9 +13,9 @@ import "./product-edit.css";
 import "./combo-editor.css";
 import "./coupon-receipt.css";
 
-type Extra = { id?: string; name: string; price: number; cost_price: number; is_active?: boolean };
+type Extra = { id?: string; name: string; price: number; cost_price?: number; is_active?: boolean };
 type ComboComponent = { id: string; name: string; type: "product"; quantity: number };
-type Product = { id?: string; name: string; category: string; price: number; cost_price: number; color: string; emoji: string; kind?: "combo" | "product"; extras?: Extra[]; combo_items?: ComboComponent[]; is_active?: boolean };
+type Product = { id?: string; name: string; category: string; price: number; cost_price?: number; color: string; emoji: string; kind?: "combo" | "product"; extras?: Extra[]; combo_items?: ComboComponent[]; is_active?: boolean };
 type CartItem = { id: number; product: Product; extras: Extra[] };
 type PaymentMethod = "Dinheiro" | "Cartão de débito" | "Cartão de crédito" | "Pix" | "Vale alimentação" | "Crediário";
 type PaymentLine = { method: PaymentMethod; amount: number };
@@ -85,6 +85,31 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     });
     return () => { mounted = false; };
   }, []);
+  useEffect(() => {
+    const modal = document.querySelector<HTMLFormElement>(".catalog-modal");
+    if (!modal || !dialog) return;
+    modal.querySelector(".unit-cost-editor")?.remove();
+    const label = document.createElement("label");
+    label.className = "unit-cost-editor";
+    label.textContent = "Custo unitário (R$)";
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "0";
+    input.step = "0.01";
+    input.required = true;
+    input.value = formCostPrice;
+    input.placeholder = "0,00";
+    const preview = document.createElement("small");
+    preview.className = "unit-cost-preview";
+    const updatePreview = () => { preview.textContent = `Ganho por item: ${money(Number(modal.querySelector<HTMLInputElement>('input[type="number"]')?.value || 0) - Number(input.value || 0))}`; };
+    updatePreview();
+    input.addEventListener("input", () => { setFormCostPrice(input.value); updatePreview(); });
+    label.append(input, preview);
+    const priceInput = modal.querySelector<HTMLInputElement>('input[type="number"]');
+    priceInput?.addEventListener("input", updatePreview);
+    priceInput?.parentElement?.after(label);
+    return () => { priceInput?.removeEventListener("input", updatePreview); label.remove(); };
+  }, [dialog]);
   useEffect(() => {
     const modal = document.querySelector<HTMLFormElement>(".catalog-modal");
     if (!modal) return;
@@ -302,6 +327,10 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
       const button = actions.querySelector<HTMLButtonElement>(".product-status-toggle")!;
       button.textContent = product.is_active === false ? "Reativar" : "Inativar";
       button.setAttribute("aria-label", `${product.is_active === false ? "Reativar" : "Inativar"} ${product.name}`);
+      const productDetails = row.querySelector<HTMLElement>(":scope > span:nth-child(2)");
+      let cost = productDetails?.querySelector<HTMLElement>(".product-row-cost");
+      if (!cost && productDetails) { cost = document.createElement("small"); cost.className = "product-row-cost"; productDetails.append(cost); }
+      if (cost) cost.textContent = `Custo ${money(product.cost_price ?? 0)} · Ganho ${money(product.price - (product.cost_price ?? 0))}`;
     });
     const handleProductRow = async (event: MouseEvent) => {
       if (role !== "admin" || active !== "Produtos & estoque") return;
