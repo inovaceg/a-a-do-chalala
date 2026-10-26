@@ -3,6 +3,7 @@ import { Ban, Pencil, Plus, RefreshCw, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import SalesReportPanel, { SalesReportTabs, type ReportType } from "./SalesReportPanel";
 import "./sales-management.css";
+import "./sales-management-operator.css";
 
 type Extra = { name: string; price: number };
 type Product = { id: string; name: string; price: number; extras: Extra[] };
@@ -67,6 +68,7 @@ export default function SalesManagement({ active, role }: { active: boolean; rol
   }, 0) - Number(editing?.discount_amount ?? 0), [items, productById, editing]);
 
   const startEdit = (sale: Sale) => {
+    if (role !== "admin") return;
     setEditing(sale);
     setItems(sale.sale_items.map((item, index) => ({ key: `${item.id}-${index}`, productId: item.product_id ?? "", quantity: item.quantity, extras: item.extras ?? [] })));
     setPayments(sale.sale_payments.map((payment, index) => ({ key: `${payment.id}-${index}`, method: payment.method, amount: Number(payment.amount) })));
@@ -97,7 +99,7 @@ export default function SalesManagement({ active, role }: { active: boolean; rol
   };
 
   const cancelSale = async (sale: Sale) => {
-    if (!window.confirm(`Cancelar a venda ${sale.receipt_number}?`)) return;
+    if (role !== "admin" || !window.confirm(`Cancelar a venda ${sale.receipt_number}?`)) return;
     setError("");
     const { error: cancelError } = await supabase.rpc("cancel_sale", { p_sale_id: sale.id });
     if (cancelError) { setError(cancelError.message || "Não foi possível cancelar a venda."); return; }
@@ -107,7 +109,7 @@ export default function SalesManagement({ active, role }: { active: boolean; rol
 
   if (!active) return null;
 
-  return <div className="sales-screen">
+  return <div className={`sales-screen ${role === "operator" ? "operator-sales-view" : ""}`}>
     <section className="sales-workspace">
       <header className="sales-workspace-heading"><div><span className="modal-kicker">RELATÓRIOS DO PDV</span><h2>Vendas e relatórios</h2><p>Consulte faturamento, produtos, formas de pagamento e vendas por cliente.</p></div><button className="sales-refresh" onClick={() => void loadSales()} disabled={loading} aria-label="Atualizar vendas"><RefreshCw size={16}/></button></header>
       {notice && <div className="sales-notice">{notice}<button onClick={() => setNotice("")} aria-label="Fechar aviso"><X size={14}/></button></div>}
