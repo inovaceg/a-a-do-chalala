@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Banknote, CalendarDays, Check, Clock3, CreditCard, Plus, RefreshCw, Search, Wallet, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import "./financial-management.css";
+import "./category-modal.css";
 
 type FinancialTab = "overview" | "income" | "expenses";
 type RangePreset = "today" | "yesterday" | "7days" | "month" | "custom";
