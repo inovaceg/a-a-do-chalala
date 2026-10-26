@@ -305,7 +305,7 @@ def print_with_driver(job, config):
                 lines = split_to_width(row["text"], printable_width - int(dpi_x * 3 / 25.4), lambda text: dc.GetTextExtent(text)[0])
                 padding_y = max(2, int(dpi_y * 0.7 / 25.4))
                 box_height = len(lines) * line_height + 2 * padding_y
-                dc.Rectangle(side_margin, y, page_width - side_margin, y + box_height)
+                dc.Rectangle((side_margin, y, page_width - side_margin, y + box_height))
                 for index, line in enumerate(lines):
                     draw_centered(line, y + padding_y + index * line_height)
                 y += box_height + int(dpi_y * (0.8 if kind == "total" else 0.45) / 25.4)
