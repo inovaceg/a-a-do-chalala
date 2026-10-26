@@ -276,7 +276,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     });
     setCheckoutSaving(false);
     if (error || !data) { setNotice(error?.message.includes("discount") ? "Somente uma administradora pode aplicar desconto." : error?.message || "Não foi possível registrar a venda."); return; }
-    const salePrint = { receiptNumber: data.receipt_number as string, total: Number(data.total), items: cart.map(item => `${item.product.name}${item.extras.length ? ` (${item.extras.map(extra => extra.name).join(", ")})` : ""} · ${money(totalOf(item))}`), products: cart.map(item => ({ name: item.product.name, quantity: 1, extras: item.extras.map(extra => ({ name: extra.name, price: extra.price })), unit_price: Number(item.product.price), line_total: totalOf(item) })), customer: currentSaleCustomer?.name, isDelivery: currentSaleDelivery, deliveryAddress: currentDeliveryAddress, payments: payment.payments, operator: displayName || email.split("@")[0] || "Operador" };
+    const salePrint = { receiptNumber: data.receipt_number as string, total: Number(data.total), items: cart.map(item => `${item.product.name}${item.extras.length ? ` (${item.extras.map(extra => extra.name).join(", ")})` : ""} · ${money(totalOf(item))}`), products: cart.map(item => ({ name: item.product.name, quantity: 1, extras: item.extras.map(extra => ({ name: extra.name, price: extra.price })), unit_price: Number(item.product.price), line_total: totalOf(item) })), customer: currentSaleCustomer?.name, customerAddress: currentSaleCustomer ? [currentSaleCustomer.street, currentSaleCustomer.address_number, currentSaleCustomer.address_complement, currentSaleCustomer.neighborhood, currentSaleCustomer.city, currentSaleCustomer.postal_code ? `CEP ${currentSaleCustomer.postal_code}` : ""].filter(Boolean).join(", ") : "", isDelivery: currentSaleDelivery, deliveryAddress: currentDeliveryAddress, courier: currentSaleCourier?.name ?? "", payments: payment.payments, operator: displayName || email.split("@")[0] || "Operador" };
     setClosedSale({ items: [...cart], total: Number(data.total), id: data.receipt_number, customer: currentSaleCustomer, courier: currentSaleCourier, delivery: currentSaleDelivery, deliveryAddress: currentDeliveryAddress, ...payment });
     window.setTimeout(() => {
       void (async () => {
@@ -287,7 +287,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
       const associatedStore = Array.isArray(membership?.stores) ? membership.stores[0] : membership?.stores;
       if (!membership) return;
       const lines = [...salePrint.products.map(product => ({ text: `${product.quantity} x ${product.name}${product.extras.length ? ` + ${product.extras.map(extra => extra.name).join(", ")}` : ""} · ${money(product.line_total)}` })), { text: `TOTAL ${money(salePrint.total)}`, bold: true }, ...salePrint.payments.map(method => ({ text: `${method.method}: ${money(method.amount)}` })), ...(salePrint.customer ? [{ text: `CLIENTE: ${salePrint.customer}` }] : []), ...(salePrint.isDelivery ? [{ text: `DELIVERY: ${salePrint.deliveryAddress || "ENDEREÇO NÃO INFORMADO"}` }] : [])];
-      const receipt = { orderNumber: salePrint.receiptNumber, soldAt: new Date().toISOString(), operator: salePrint.operator, products: salePrint.products, payments: salePrint.payments.map(method => ({ method: method.method, amount: method.amount })), total: salePrint.total, customer: salePrint.customer ?? null, notes: salePrint.isDelivery ? `DELIVERY: ${salePrint.deliveryAddress || "ENDEREÇO NÃO INFORMADO"}` : null };
+      const receipt = { orderNumber: salePrint.receiptNumber, soldAt: new Date().toISOString(), operator: salePrint.operator, products: salePrint.products, payments: salePrint.payments.map(method => ({ method: method.method, amount: method.amount })), total: salePrint.total, delivery: salePrint.isDelivery, customer: salePrint.customer ?? null, customerAddress: salePrint.customerAddress || null, deliveryAddress: salePrint.deliveryAddress || salePrint.customerAddress || null, courier: salePrint.courier || null, notes: null };
       const { error: printError } = await supabase.from("print_jobs").insert({ store_id: membership.store_id, created_by: user.id, payload: { kind: "sale", title: `PEDIDO ${salePrint.receiptNumber}`, store: associatedStore?.name ?? "AÇAÍ DO CHALALA", createdAt: new Date().toISOString(), receipt, lines } });
       if (printError) setNotice("Venda registrada, mas não foi possível enviar o comprovante à fila de impressão.");
       })();
@@ -311,9 +311,20 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     const detail = document.createElement("span");
     detail.textContent = closedSale.customer ? `${closedSale.customer.name} · WhatsApp ${closedSale.customer.whatsapp}` : "CUPOM SEM IDENTIFICAÇÃO";
     identity.append(label, detail);
+    const deliveryType = document.createElement("span");
+    deliveryType.textContent = `TIPO: ${closedSale.delivery ? "DELIVERY" : "NÃO DELIVERY"}`;
+    identity.append(deliveryType);
+    if (closedSale.customer) {
+      const customerAddress = [closedSale.customer.street, closedSale.customer.address_number, closedSale.customer.address_complement, closedSale.customer.neighborhood, closedSale.customer.city, closedSale.customer.postal_code ? `CEP ${closedSale.customer.postal_code}` : ""].filter(Boolean).join(", ");
+      if (customerAddress) {
+        const address = document.createElement("span");
+        address.textContent = `ENDEREÇO DO CLIENTE: ${closedSale.delivery && closedSale.deliveryAddress ? closedSale.deliveryAddress : customerAddress}`;
+        identity.append(address);
+      }
+    }
     if (closedSale.delivery) {
       const delivery = document.createElement("span");
-      delivery.textContent = `DELIVERY${closedSale.deliveryAddress ? ` · ${closedSale.deliveryAddress}` : ""}`;
+      delivery.textContent = "DELIVERY";
       identity.append(delivery);
       if (closedSale.courier) {
         const courier = document.createElement("span");

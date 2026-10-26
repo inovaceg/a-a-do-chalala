@@ -66,17 +66,23 @@ def receipt_rows(job):
     rows = [
         {"text": "AÇAÍ DO CHALALA", "align": "center", "size": 15, "bold": True},
         {"text": "O sabor que conquista!", "align": "center", "size": 9, "italic": True},
-        {"text": "R. Luís Marchini, 228", "align": "center", "size": 8},
-        {"text": "São Benedito – Juiz de Fora/MG", "align": "center", "size": 8},
-        {"text": "CEP: 36061-270", "align": "center", "size": 8},
+        {"text": "Endereço: R. Luís Marchini, 228 - São Benedito, Juiz de Fora - MG, 36061-270", "align": "center", "size": 8},
         {"text": "--------------------------------", "align": "center", "size": 8},
         {"text": "COMPROVANTE DE PEDIDO", "align": "center", "size": 10, "bold": True},
         {"text": "--------------------------------", "align": "center", "size": 8},
         {"text": f"PEDIDO Nº {receipt.get('orderNumber', payload.get('title', 'TESTE'))}", "align": "center", "size": 13, "bold": True},
         {"text": f"DATA: {format_datetime(receipt.get('soldAt', payload.get('createdAt', datetime.now().isoformat())))}", "size": 8},
         {"text": f"OPERADOR: {receipt.get('operator', 'Caixa central')}", "size": 8},
-        {"text": "--------------------------------", "align": "center", "size": 8},
     ]
+    rows.append({"text": f"TIPO: {'DELIVERY' if receipt.get('delivery') else 'NÃO DELIVERY'}", "size": 9, "bold": True})
+    if receipt.get("customer"):
+        rows.append({"text": f"CLIENTE: {receipt['customer']}", "size": 8})
+    customer_address = receipt.get("deliveryAddress") if receipt.get("delivery") else receipt.get("customerAddress")
+    if customer_address:
+        rows.append({"text": f"ENDEREÇO DO CLIENTE: {customer_address}", "size": 8})
+    if receipt.get("courier"):
+        rows.append({"text": f"ENTREGADOR: {receipt['courier']}", "size": 8})
+    rows.append({"text": "--------------------------------", "align": "center", "size": 8})
     products = receipt.get("products", [])
     if products:
         for product in products:
@@ -92,8 +98,6 @@ def receipt_rows(job):
         rows.append({"text": f"PAGAMENTO: {payment.get('method', '')}  {format_money(payment.get('amount', ''))}", "size": 8})
     if receipt.get("total") is not None:
         rows.append({"text": f"TOTAL  {format_money(receipt['total'])}", "align": "right", "size": 12, "bold": True})
-    if receipt.get("customer"):
-        rows.append({"text": f"CLIENTE: {receipt['customer']}", "size": 8})
     if receipt.get("notes"):
         rows.append({"text": f"OBSERVAÇÃO: {receipt['notes']}", "size": 8})
     rows.extend([
