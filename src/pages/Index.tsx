@@ -10,6 +10,7 @@ import CatalogCostTabs from "@/components/CatalogCostTabs";
 import FinancialManagement from "@/components/FinancialManagement";
 import PrintTestControl from "@/components/PrintTestControl";
 import { supabase } from "@/integrations/supabase/client";
+import { jsPDF } from "jspdf";
 import { Activity, ArrowUpRight, Banknote, Bell, Boxes, CalendarDays, Check, ChevronDown, Clock3, Coffee, CreditCard, LayoutDashboard, Menu, Minus, Plus, Printer, Search, ShoppingBag, ShoppingCart, Users, UserCog, Wallet, LogOut, X } from "lucide-react";
 import "./pos-keyboard.css";
 import "./product-edit.css";
@@ -300,6 +301,61 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     setCart([]);
     setCheckoutOpen(false);
   };
+  const generateReceiptPdf = () => {
+    if (!closedSale) return;
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: [80, 400] });
+    const rows: { text: string; size: number; bold?: boolean; align?: "left" | "center" | "right" }[] = [
+      { text: "AÇAÍ DO CHALALA", size: 15, bold: true, align: "center" },
+      { text: "O sabor que conquista!", size: 9, align: "center" },
+      { text: "Endereço: R. Luís Marchini, 228 - São Benedito, Juiz de Fora - MG, 36061-270", size: 8, align: "center" },
+      { text: "--------------------------------", size: 8, align: "center" },
+      { text: "COMPROVANTE DE PEDIDO", size: 10, bold: true, align: "center" },
+      { text: "--------------------------------", size: 8, align: "center" },
+      { text: `PEDIDO Nº ${closedSale.id}`, size: 13, bold: true, align: "center" },
+      { text: `DATA: ${new Date().toLocaleString("pt-BR")}`, size: 8 },
+      { text: `OPERADOR: ${displayName || email.split("@")[0] || "Operador"}`, size: 8 },
+      { text: `TIPO: ${closedSale.delivery ? "DELIVERY" : "NÃO DELIVERY"}`, size: 9, bold: true },
+    ];
+    if (closedSale.customer) rows.push({ text: `CLIENTE: ${closedSale.customer.name} · ${closedSale.customer.whatsapp}`, size: 8 });
+    const customerAddress = closedSale.delivery && closedSale.deliveryAddress ? closedSale.deliveryAddress : closedSale.customer ? [closedSale.customer.street, closedSale.customer.address_number, closedSale.customer.address_complement, closedSale.customer.neighborhood, closedSale.customer.city, closedSale.customer.postal_code ? `CEP ${closedSale.customer.postal_code}` : ""].filter(Boolean).join(", ") : "";
+    if (customerAddress) rows.push({ text: `ENDEREÇO DO CLIENTE: ${customerAddress}`, size: 8 });
+    if (closedSale.courier) rows.push({ text: `ENTREGADOR: ${closedSale.courier.name}`, size: 8 });
+    rows.push({ text: "--------------------------------", size: 8, align: "center" });
+    for (const item of closedSale.items) {
+      rows.push({ text: `1 x ${item.product.name}  ${money(totalOf(item))}`, size: 9, bold: true });
+      for (const extra of item.extras) rows.push({ text: `  + ${extra.name} (${money(extra.price)})`, size: 8 });
+    }
+    rows.push({ text: "--------------------------------", size: 8, align: "center" });
+    for (const paymentLine of closedSale.payments) rows.push({ text: `PAGAMENTO: ${paymentLine.method}  ${money(paymentLine.amount)}`, size: 8 });
+    if (closedSale.discount > 0) rows.push({ text: `DESCONTO: ${money(closedSale.discount)}`, size: 8 });
+    if (closedSale.change > 0) rows.push({ text: `TROCO: ${money(closedSale.change)}`, size: 8 });
+    rows.push({ text: `TOTAL  ${money(closedSale.total)}`, size: 12, bold: true, align: "right" });
+    rows.push({ text: "--------------------------------", size: 8, align: "center" }, { text: "Obrigado pela preferência!", size: 9, bold: true, align: "center" }, { text: "Volte sempre ao Açaí do Chalala!", size: 8, align: "center" });
+
+    const rendered = rows.flatMap(row => {
+      doc.setFont("helvetica", row.bold ? "bold" : "normal");
+      doc.setFontSize(row.size);
+      return doc.splitTextToSize(row.text, 74).map(text => ({ ...row, text }));
+    });
+    const pageHeight = rendered.reduce((height, row) => height + row.size * 0.48 + 2, 10);
+    doc.internal.pageSize.setHeight(pageHeight);
+    let y = 5;
+    for (const row of rendered) {
+      doc.setFont("helvetica", row.bold ? "bold" : "normal");
+      doc.setFontSize(row.size);
+      doc.text(row.text, row.align === "center" ? 40 : row.align === "right" ? 77 : 3, y, { align: row.align ?? "left" });
+      y += row.size * 0.48 + 2;
+    }
+    const url = URL.createObjectURL(doc.output("blob"));
+    const pdfWindow = window.open(url, "_blank");
+    if (!pdfWindow) {
+      const download = document.createElement("a");
+      download.href = url;
+      download.download = `cupom-${closedSale.id}.pdf`;
+      download.click();
+    }
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+  };
   useEffect(() => {
     const receipt = document.querySelector<HTMLElement>(".sale-receipt");
     if (!receipt || !closedSale) return;
@@ -430,7 +486,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     {customize && <div className="modal-backdrop"><section className="catalog-modal customize-modal"><button className="modal-close" onClick={() => setCustomize(null)} aria-label="Fechar"><X size={18}/></button><div className="modal-kicker">PERSONALIZE SEU PEDIDO</div><h2>{customize.name}</h2><p>Escolha os complementos; cada adicional é cobrado por fora.</p><div className="customize-base"><span>Produto base</span><b>{money(customize.price)}</b></div><div className="customize-extras">{(customize.extras ?? extras).map(extra => <label key={extra.name}><input type="checkbox" checked={selectedExtras.includes(extra.name)} onChange={e => setSelectedExtras(current => e.target.checked ? [...current, extra.name] : current.filter(n => n !== extra.name))}/><span>{extra.name}</span><b>+ {money(extra.price)}</b></label>)}</div><div className="customize-total"><span>Total deste item</span><b>{money(customize.price + (customize.extras ?? extras).filter(e => selectedExtras.includes(e.name)).reduce((sum, e) => sum + e.price, 0))}</b></div><div className="modal-actions"><button className="secondary-action" onClick={() => setCustomize(null)}>Cancelar</button><button className="primary-button" onClick={() => { add(customize, (customize.extras ?? extras).filter(e => selectedExtras.includes(e.name))); setCustomize(null); }}><Plus size={15}/> Adicionar ao pedido</button></div></section></div>}
     {checkoutOpen && <PaymentCheckout total={cartTotal} saving={checkoutSaving} onCancel={() => setCheckoutOpen(false)} onComplete={completeCheckout} />}
     {notice && <div className="toast-message success-toast"><Check size={17}/>{notice}<button onClick={() => setNotice("")} aria-label="Fechar"><X size={15}/></button></div>}
-    {closedSale && <div className="receipt-backdrop"><section className="sale-receipt" role="dialog" aria-modal="true" aria-labelledby="receipt-title"><div className="receipt-logo">AÇAÍ DO CHALALA</div><h2 id="receipt-title">Comprovante não fiscal</h2><span>Venda #{closedSale.id} · {new Date().toLocaleDateString("pt-BR")}</span><strong>Venda concluída com sucesso</strong><div className="receipt-items"><div className="receipt-columns"><span>ITEM</span><span>QTD</span><span>VALOR</span></div>{closedSale.items.map(item => <div className="receipt-line" key={item.id}><span className="receipt-description"><b>{item.product.name}</b>{item.extras.map(extra => <small key={extra.name}>+ {extra.name} ({money(extra.price)})</small>)}</span><span>1</span><b>{money(totalOf(item))}</b></div>)}<div className="receipt-total"><span>DESCONTO</span><b>− {money(closedSale.discount)}</b></div>{closedSale.payments.map((payment, index) => <div className="receipt-total" key={index}><span>{payment.method.toUpperCase()}</span><b>{money(payment.amount)}</b></div>)}{closedSale.change > 0 && <div className="receipt-total"><span>TROCO</span><b>{money(closedSale.change)}</b></div>}{closedSale.creditCustomer && <div className="receipt-total"><span>CLIENTE / VENCIMENTO</span><b>{closedSale.creditCustomer} · {closedSale.creditDueDate}</b></div>}<div className="receipt-total"><span>TOTAL</span><b>{money(closedSale.total)}</b></div></div><div className="receipt-actions"><button onClick={() => window.print()}><Printer size={15}/> Imprimir / Salvar PDF</button><button className="receipt-close" onClick={() => setClosedSale(null)}>Fechar</button></div></section></div>}
+    {closedSale && <div className="receipt-backdrop"><section className="sale-receipt" role="dialog" aria-modal="true" aria-labelledby="receipt-title"><div className="receipt-logo">AÇAÍ DO CHALALA</div><h2 id="receipt-title">Comprovante não fiscal</h2><span>Venda #{closedSale.id} · {new Date().toLocaleDateString("pt-BR")}</span><strong>Venda concluída com sucesso</strong><div className="receipt-items"><div className="receipt-columns"><span>ITEM</span><span>QTD</span><span>VALOR</span></div>{closedSale.items.map(item => <div className="receipt-line" key={item.id}><span className="receipt-description"><b>{item.product.name}</b>{item.extras.map(extra => <small key={extra.name}>+ {extra.name} ({money(extra.price)})</small>)}</span><span>1</span><b>{money(totalOf(item))}</b></div>)}<div className="receipt-total"><span>DESCONTO</span><b>− {money(closedSale.discount)}</b></div>{closedSale.payments.map((payment, index) => <div className="receipt-total" key={index}><span>{payment.method.toUpperCase()}</span><b>{money(payment.amount)}</b></div>)}{closedSale.change > 0 && <div className="receipt-total"><span>TROCO</span><b>{money(closedSale.change)}</b></div>}{closedSale.creditCustomer && <div className="receipt-total"><span>CLIENTE / VENCIMENTO</span><b>{closedSale.creditCustomer} · {closedSale.creditDueDate}</b></div>}<div className="receipt-total"><span>TOTAL</span><b>{money(closedSale.total)}</b></div></div><div className="receipt-actions"><button onClick={generateReceiptPdf}><Printer size={15}/> Gerar PDF / Imprimir</button><button className="receipt-close" onClick={() => setClosedSale(null)}>Fechar</button></div></section></div>}
     <CouponStartDialog open={couponStartOpen} onCancel={cancelCouponStart} onConfirm={openCoupon} />
     <SalesManagement active={active === "Vendas"} role={role} />
     <FinancialManagement active={active === "Financeiro" && role === "admin"} />
