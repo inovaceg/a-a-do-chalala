@@ -36,3 +36,6 @@ dist-ssr
 # Playwright test artifacts
 /e2e-tests/fixtures/dyad/
 /e2e-tests/tsconfig.json
+
+.vercel
+.env*
