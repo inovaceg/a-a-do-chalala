@@ -19,7 +19,19 @@ export async function createTestAccount(role: "admin" | "operator" = "operator")
   }
   return {
     account: { ...account, id: data.user.id },
+    verifySale: async (receiptNumber: string) => {
+      const { data: sale, error: saleError } = await admin.from("sales").select("id,cash_session_id,created_by,total,sale_items(product_name),sale_payments(method,amount)").eq("receipt_number", receiptNumber).single();
+      if (saleError || !sale) throw new Error(saleError?.message || "Persisted sale was not found.");
+      return sale;
+    },
     cleanup: async () => {
+      const { data: sessions } = await admin.from("cash_sessions").select("id").eq("opened_by", data.user.id);
+      const sessionIds = (sessions ?? []).map(session => session.id);
+      await admin.from("sales").delete().eq("created_by", data.user.id);
+      if (sessionIds.length) {
+        await admin.from("cash_movements").delete().in("cash_session_id", sessionIds);
+        await admin.from("cash_sessions").delete().in("id", sessionIds);
+      }
       const { error: deleteError } = await admin.auth.admin.deleteUser(data.user.id);
       if (deleteError) throw new Error(`Could not clean up test user: ${deleteError.message}`);
     },

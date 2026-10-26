@@ -3,11 +3,13 @@ import { createTestAccount, signInThroughApp, type TestAccount } from "./fixture
 
 let operator: TestAccount;
 let cleanup: () => Promise<void>;
+let verifySale: (receiptNumber: string) => ReturnType<Awaited<ReturnType<typeof createTestAccount>>["verifySale"]>;
 
 test.beforeEach(async () => {
   const created = await createTestAccount("operator");
   operator = created.account;
   cleanup = created.cleanup;
+  verifySale = created.verifySale;
 });
 
 test.afterEach(async () => {
@@ -45,5 +47,14 @@ test("operadora só acessa PDV e vendas e conclui uma venda com pagamento dividi
   await expect(receipt.getByRole("heading", { name: "Comprovante não fiscal" })).toBeVisible();
   await expect(receipt.getByText("PIX", { exact: true })).toBeVisible();
   await expect(receipt.getByText("Açaí Tradicional", { exact: true })).toBeVisible();
+  const receiptText = await receipt.getByText(/Venda #CH-/).textContent();
+  const receiptNumber = receiptText?.match(/Venda #(CH-[A-Z0-9]+)/)?.[1];
+  expect(receiptNumber).toBeTruthy();
+  const persistedSale = await verifySale(receiptNumber!);
+  expect(persistedSale.created_by).toBe(operator.id);
+  expect(persistedSale.cash_session_id).toBeTruthy();
+  expect(Number(persistedSale.total)).toBe(18);
+  expect(persistedSale.sale_items).toEqual([{ product_name: "Açaí Tradicional" }]);
+  expect(persistedSale.sale_payments).toHaveLength(2);
   await expect(receipt.getByRole("button", { name: "Imprimir / Salvar PDF" })).toBeVisible();
 });
