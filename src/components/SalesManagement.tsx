@@ -9,7 +9,7 @@ type Product = { id: string; name: string; price: number; extras: Extra[] };
 type SaleItem = { id: string; product_id: string | null; product_name: string; quantity: number; unit_price: number; extras: Extra[]; line_total: number };
 type PaymentMethod = "Dinheiro" | "Cartão de débito" | "Cartão de crédito" | "Pix" | "Vale alimentação" | "Crediário";
 type SalePayment = { id: string; method: PaymentMethod; amount: number };
-type Sale = { id: string; receipt_number: string; total: number; subtotal: number; discount_amount: number; change_amount: number; status: "completed" | "cancelled"; created_at: string; credit_customer: string | null; credit_due_date: string | null; sale_items: SaleItem[]; sale_payments: SalePayment[] };
+type Sale = { id: string; receipt_number: string; total: number; subtotal: number; discount_amount: number; change_amount: number; status: "completed" | "cancelled"; created_at: string; credit_customer: string | null; credit_due_date: string | null; customer_id: string | null; customer_name: string | null; customer_whatsapp: string | null; sale_items: SaleItem[]; sale_payments: SalePayment[] };
 type EditItem = { key: string; productId: string; quantity: number; extras: Extra[] };
 type EditPayment = { key: string; method: PaymentMethod; amount: number };
 const methods: PaymentMethod[] = ["Dinheiro", "Cartão de débito", "Cartão de crédito", "Pix", "Vale alimentação", "Crediário"];
@@ -35,7 +35,7 @@ export default function SalesManagement({ active }: { active: boolean }) {
     setLoading(true);
     setError("");
     const [{ data, error: salesError }, { data: productData, error: productsError }] = await Promise.all([
-      supabase.from("sales").select("id,receipt_number,total,subtotal,discount_amount,change_amount,status,created_at,credit_customer,credit_due_date,sale_items(id,product_id,product_name,quantity,unit_price,extras,line_total),sale_payments(id,method,amount)").order("created_at", { ascending: false }).limit(1000),
+      supabase.from("sales").select("id,receipt_number,total,subtotal,discount_amount,change_amount,status,created_at,credit_customer,credit_due_date,customer_id,customer_name,customer_whatsapp,sale_items(id,product_id,product_name,quantity,unit_price,extras,line_total),sale_payments(id,method,amount)").order("created_at", { ascending: false }).limit(1000),
       supabase.from("products").select("id,name,price,extras").eq("is_active", true).order("name"),
     ]);
     if (salesError || productsError) setError("Não foi possível carregar as vendas. Tente novamente.");
@@ -97,7 +97,7 @@ export default function SalesManagement({ active }: { active: boolean }) {
 
   return <div className="sales-screen">
     <section className="sales-workspace">
-      <header className="sales-workspace-heading"><div><span className="modal-kicker">RELATÓRIOS DO PDV</span><h2>Vendas e relatórios</h2><p>Consulte o faturamento, o desempenho dos produtos e os pagamentos.</p></div><button className="sales-refresh" onClick={() => void loadSales()} disabled={loading} aria-label="Atualizar vendas"><RefreshCw size={16}/></button></header>
+      <header className="sales-workspace-heading"><div><span className="modal-kicker">RELATÓRIOS DO PDV</span><h2>Vendas e relatórios</h2><p>Consulte faturamento, produtos, formas de pagamento e vendas por cliente.</p></div><button className="sales-refresh" onClick={() => void loadSales()} disabled={loading} aria-label="Atualizar vendas"><RefreshCw size={16}/></button></header>
       {notice && <div className="sales-notice">{notice}<button onClick={() => setNotice("")} aria-label="Fechar aviso"><X size={14}/></button></div>}
       {error && !editing && <div className="sales-error" role="alert">{error}</div>}
       <SalesReportTabs value={reportTab} onChange={setReportTab}/>
