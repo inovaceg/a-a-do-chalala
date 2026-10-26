@@ -17,8 +17,8 @@ export default function DashboardDataSync({ active, productCount, extraCount }: 
       const previousWeek = new Date(startOfWeek);
       previousWeek.setDate(previousWeek.getDate() - 7);
       document.querySelectorAll<HTMLElement>(".stats-grid .stat-card > strong, .chart-summary > strong").forEach(element => { element.textContent = "Carregando…"; });
-      const recentBody = document.querySelector<HTMLElement>(".orders-panel tbody");
-      recentBody?.replaceChildren();
+      const recentBodyPlaceholder = document.querySelector<HTMLElement>(".orders-panel tbody");
+      recentBodyPlaceholder?.replaceChildren();
       const [{ data: periodData, error: periodError }, { data: recentData, error: recentError }] = await Promise.all([
         supabase.from("sales").select("id,total,status,created_at").gte("created_at", previousWeek.toISOString()).lt("created_at", now.toISOString()).order("created_at", { ascending: false }).limit(2000),
         supabase.from("sales").select("id,receipt_number,total,status,created_at,customer_name,sale_payments(method)").order("created_at", { ascending: false }).limit(5),
