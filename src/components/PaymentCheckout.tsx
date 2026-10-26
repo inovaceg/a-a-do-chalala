@@ -4,10 +4,10 @@ import { supabase } from "@/integrations/supabase/client";
 
 type Method = "Dinheiro" | "Cartão de débito" | "Cartão de crédito" | "Pix" | "Vale alimentação" | "Crediário";
 type Line = { method: Method; amount: number };
-type Props = { total: number; onCancel: () => void; onComplete: (payment: { discount: number; payments: Line[]; change: number; creditCustomer: string; creditDueDate: string }) => void };
+type Props = { total: number; saving?: boolean; onCancel: () => void; onComplete: (payment: { discount: number; payments: Line[]; change: number; creditCustomer: string; creditDueDate: string }) => void };
 const currency = (amount: number) => amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-export default function PaymentCheckout({ total, onCancel, onComplete }: Props) {
+export default function PaymentCheckout({ total, saving = false, onCancel, onComplete }: Props) {
   const [lines, setLines] = useState<Line[]>([{ method: "Dinheiro", amount: total }]);
   const [discountType, setDiscountType] = useState<"value" | "percent">("value");
   const [discountValue, setDiscountValue] = useState("");
@@ -76,6 +76,6 @@ export default function PaymentCheckout({ total, onCancel, onComplete }: Props) 
     {lines.some(item => item.method === "Crediário") && <div className="credit-fields"><label>Cliente do crediário<input value={customer} onChange={e => setCustomer(e.target.value)} placeholder="Nome do cliente"/></label><label>Vencimento<input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)}/></label></div>}
     {needsChange && <label className="change-field">Troco a devolver (R$)<input type="number" min="0" step="0.01" value={change} onChange={e => setChange(e.target.value)} placeholder={currency(paid - due)}/></label>}
     <div className="checkout-total paid-total"><span>Total informado</span><b>{currency(paid)}</b></div>{error && <small className="discount-error">{error}</small>}
-    <div className="checkout-shortcut">Pressione <kbd>Enter</kbd> para avançar pelos campos · <kbd>F9</kbd> para concluir a venda</div><div className="modal-actions"><button className="secondary-action" onClick={onCancel}>Voltar ao pedido</button><button className="primary-button checkout-submit" onClick={finish}><Check size={15}/> Concluir venda <kbd>F9</kbd></button></div>
+    <div className="checkout-shortcut">Pressione <kbd>Enter</kbd> para avançar pelos campos · <kbd>F9</kbd> para concluir a venda</div><div className="modal-actions"><button className="secondary-action" onClick={onCancel} disabled={saving}>Voltar ao pedido</button><button className="primary-button checkout-submit" onClick={finish} disabled={saving}><Check size={15}/> {saving ? "Registrando venda…" : "Concluir venda"} {!saving && <kbd>F9</kbd>}</button></div>
   </section></div>;
 }

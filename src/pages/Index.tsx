@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Activity, ArrowUpRight, Banknote, Bell, Boxes, CalendarDays, Check, ChevronDown, Clock3, Coffee, CreditCard, LayoutDashboard, Menu, Minus, Plus, Printer, Search, ShoppingBag, ShoppingCart, Users, UserCog, Wallet, LogOut, X } from "lucide-react";
 
 type Extra = { name: string; price: number };
-type Product = { name: string; category: string; price: number; color: string; emoji: string; kind?: "combo" | "product"; extras?: Extra[] };
+type Product = { id?: string; name: string; category: string; price: number; color: string; emoji: string; kind?: "combo" | "product"; extras?: Extra[] };
 type CartItem = { id: number; product: Product; extras: Extra[] };
 type PaymentMethod = "Dinheiro" | "Cartão de débito" | "Cartão de crédito" | "Pix" | "Vale alimentação" | "Crediário";
 type PaymentLine = { method: PaymentMethod; amount: number };
@@ -42,6 +42,21 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   const [formCategory, setFormCategory] = useState("Açaí");
   const [formCombo, setFormCombo] = useState(false);
   const [formExtras, setFormExtras] = useState<string[]>([]);
+  const [cashSession, setCashSession] = useState<{ id: string; register_id: string } | null>(null);
+  const [checkoutSaving, setCheckoutSaving] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    Promise.all([
+      supabase.from("products").select("id,name,category,price,color,emoji,kind,extras").eq("is_active", true),
+      supabase.rpc("open_cash_session"),
+    ]).then(([catalog, session]) => {
+      if (!mounted) return;
+      if (catalog.data?.length) setProducts(catalog.data as Product[]);
+      if (session.data) setCashSession(session.data as { id: string; register_id: string });
+      if (session.error) setNotice("Não foi possível abrir um caixa. Verifique se há um caixa disponível.");
+    });
+    return () => { mounted = false; };
+  }, []);
   const cartTotal = useMemo(() => cart.reduce((sum, item) => sum + item.product.price + item.extras.reduce((n, extra) => n + extra.price, 0), 0), [cart]);
   const filtered = products.filter(p => `${p.name} ${p.category}`.toLowerCase().includes(query.toLowerCase()));
   const saveProducts = (next: Product[]) => { setProducts(next); localStorage.setItem("chalala-products", JSON.stringify(next)); };
@@ -60,7 +75,25 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
   }, [active, checkoutOpen, customize, dialog, cart.length]);
-  const completeCheckout = (payment: { discount: number; payments: PaymentLine[]; change: number; creditCustomer: string; creditDueDate: string }) => { setClosedSale({ items: [...cart], total: cartTotal - payment.discount, id: `CH-${Date.now().toString().slice(-5)}`, ...payment }); setCart([]); setCheckoutOpen(false); };
+  const completeCheckout = async (payment: { discount: number; payments: PaymentLine[]; change: number; creditCustomer: string; creditDueDate: string }) => {
+    if (!cashSession) { setNotice("Não há uma sessão de caixa aberta para esta venda."); return; }
+    if (cart.some(item => !item.product.id)) { setNotice("Um produto do pedido não está sincronizado com o catálogo. Atualize o catálogo antes de vender."); return; }
+    setCheckoutSaving(true);
+    const { data, error } = await supabase.rpc("record_sale", {
+      p_cash_session_id: cashSession.id,
+      p_discount: payment.discount,
+      p_change: payment.change,
+      p_credit_customer: payment.creditCustomer || null,
+      p_credit_due_date: payment.creditDueDate || null,
+      p_items: cart.map(item => ({ product_id: item.product.id, extras: item.extras })),
+      p_payments: payment.payments,
+    });
+    setCheckoutSaving(false);
+    if (error || !data) { setNotice(error?.message.includes("discount") ? "Somente uma administradora pode aplicar desconto." : error?.message || "Não foi possível registrar a venda."); return; }
+    setClosedSale({ items: [...cart], total: Number(data.total), id: data.receipt_number, ...payment });
+    setCart([]);
+    setCheckoutOpen(false);
+  };
   const totalOf = (item: CartItem) => item.product.price + item.extras.reduce((sum, e) => sum + e.price, 0);
   const openForm = (type: "product" | "extra") => { setFormName(""); setFormPrice(""); setFormCategory("Açaí"); setFormCombo(false); setFormExtras([]); setDialog(type); };
   const startNewSale = () => {
@@ -85,7 +118,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
         <footer className="footer"><span><b>AÇAÍ DO CHALALA</b><i/> Sistema PDV</span><div><a href="https://wa.me/553287026461" target="_blank" rel="noreferrer">WhatsApp: (32) 9-8702-6461</a><a href="https://www.instagram.com/acai_do_chalala/" target="_blank" rel="noreferrer">Instagram: @acai_do_chalala</a></div></footer></div></main>
     {dialog && <div className="modal-backdrop" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) setDialog(null); }}><form className="catalog-modal" onSubmit={submitCatalog}><button type="button" className="modal-close" onClick={() => setDialog(null)} aria-label="Fechar"><X size={18}/></button><div className="modal-kicker">CATÁLOGO AÇAÍ DO CHALALA</div><h2>{dialog === "product" ? "Cadastrar produto ou combo" : "Cadastrar complemento"}</h2><p>{dialog === "product" ? "Defina preço base e adicionais opcionais para a venda." : "Este valor será somado ao produto no pedido."}</p><label>Nome<input autoFocus required value={formName} onChange={e => setFormName(e.target.value)} placeholder={dialog === "product" ? "Ex.: Açaí completo" : "Ex.: Nutella"}/></label><div className="form-row"><label>Preço (R$)<input required type="number" min="0" step="0.01" value={formPrice} onChange={e => setFormPrice(e.target.value)} placeholder="0,00"/></label>{dialog === "product" && <label>Categoria<select value={formCategory} onChange={e => setFormCategory(e.target.value)}><option>Açaí</option><option>Bebidas</option><option>Sobremesas</option></select></label>}</div>{dialog === "product" && <><label className="check-label"><input type="checkbox" checked={formCombo} onChange={e => setFormCombo(e.target.checked)}/> Este cadastro é um combo</label><div className="form-extras"><b>Complementos opcionais disponíveis</b><small>Marque os adicionais que podem ser escolhidos neste produto.</small><div>{extras.map(extra => <label key={extra.name} className="extra-check"><input type="checkbox" checked={formExtras.includes(extra.name)} onChange={e => setFormExtras(current => e.target.checked ? [...current, extra.name] : current.filter(n => n !== extra.name))}/><span>{extra.name}</span><b>+ {money(extra.price)}</b></label>)}</div></div></>}<div className="modal-actions"><button type="button" className="secondary-action" onClick={() => setDialog(null)}>Cancelar</button><button type="submit" className="primary-button"><Check size={15}/> Salvar cadastro</button></div></form></div>}
     {customize && <div className="modal-backdrop"><section className="catalog-modal customize-modal"><button className="modal-close" onClick={() => setCustomize(null)} aria-label="Fechar"><X size={18}/></button><div className="modal-kicker">PERSONALIZE SEU PEDIDO</div><h2>{customize.name}</h2><p>Escolha os complementos; cada adicional é cobrado por fora.</p><div className="customize-base"><span>Produto base</span><b>{money(customize.price)}</b></div><div className="customize-extras">{(customize.extras ?? extras).map(extra => <label key={extra.name}><input type="checkbox" checked={selectedExtras.includes(extra.name)} onChange={e => setSelectedExtras(current => e.target.checked ? [...current, extra.name] : current.filter(n => n !== extra.name))}/><span>{extra.name}</span><b>+ {money(extra.price)}</b></label>)}</div><div className="customize-total"><span>Total deste item</span><b>{money(customize.price + (customize.extras ?? extras).filter(e => selectedExtras.includes(e.name)).reduce((sum, e) => sum + e.price, 0))}</b></div><div className="modal-actions"><button className="secondary-action" onClick={() => setCustomize(null)}>Cancelar</button><button className="primary-button" onClick={() => { add(customize, (customize.extras ?? extras).filter(e => selectedExtras.includes(e.name))); setCustomize(null); }}><Plus size={15}/> Adicionar ao pedido</button></div></section></div>}
-    {checkoutOpen && <PaymentCheckout total={cartTotal} onCancel={() => setCheckoutOpen(false)} onComplete={completeCheckout} />}
+    {checkoutOpen && <PaymentCheckout total={cartTotal} saving={checkoutSaving} onCancel={() => setCheckoutOpen(false)} onComplete={completeCheckout} />}
     {notice && <div className="toast-message success-toast"><Check size={17}/>{notice}<button onClick={() => setNotice("")} aria-label="Fechar"><X size={15}/></button></div>}
     {closedSale && <div className="receipt-backdrop"><section className="sale-receipt" role="dialog" aria-modal="true" aria-labelledby="receipt-title"><div className="receipt-logo">AÇAÍ DO CHALALA</div><h2 id="receipt-title">Comprovante não fiscal</h2><span>Venda #{closedSale.id} · {new Date().toLocaleDateString("pt-BR")}</span><strong>Venda concluída com sucesso</strong><div className="receipt-items"><div className="receipt-columns"><span>ITEM</span><span>QTD</span><span>VALOR</span></div>{closedSale.items.map(item => <div className="receipt-line" key={item.id}><span className="receipt-description"><b>{item.product.name}</b>{item.extras.map(extra => <small key={extra.name}>+ {extra.name} ({money(extra.price)})</small>)}</span><span>1</span><b>{money(totalOf(item))}</b></div>)}<div className="receipt-total"><span>DESCONTO</span><b>− {money(closedSale.discount)}</b></div>{closedSale.payments.map((payment, index) => <div className="receipt-total" key={index}><span>{payment.method.toUpperCase()}</span><b>{money(payment.amount)}</b></div>)}{closedSale.change > 0 && <div className="receipt-total"><span>TROCO</span><b>{money(closedSale.change)}</b></div>}{closedSale.creditCustomer && <div className="receipt-total"><span>CLIENTE / VENCIMENTO</span><b>{closedSale.creditCustomer} · {closedSale.creditDueDate}</b></div>}<div className="receipt-total"><span>TOTAL</span><b>{money(closedSale.total)}</b></div></div><div className="receipt-actions"><button onClick={() => window.print()}><Printer size={15}/> Imprimir / Salvar PDF</button><button className="receipt-close" onClick={() => setClosedSale(null)}>Fechar</button></div></section></div>}
   </div>;
