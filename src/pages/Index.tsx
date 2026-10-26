@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import PaymentCheckout from "@/components/PaymentCheckout";
 import TeamManagement from "@/components/TeamManagement";
 import SalesManagement from "@/components/SalesManagement";
+import ExtraManagement from "@/components/ExtraManagement";
 import { supabase } from "@/integrations/supabase/client";
 import { Activity, ArrowUpRight, Banknote, Bell, Boxes, CalendarDays, Check, ChevronDown, Clock3, Coffee, CreditCard, LayoutDashboard, Menu, Minus, Plus, Printer, Search, ShoppingBag, ShoppingCart, Users, UserCog, Wallet, LogOut, X } from "lucide-react";
 import "./pos-keyboard.css";
 
-type Extra = { name: string; price: number };
+type Extra = { id?: string; name: string; price: number; is_active?: boolean };
 type Product = { id?: string; name: string; category: string; price: number; color: string; emoji: string; kind?: "combo" | "product"; extras?: Extra[] };
 type CartItem = { id: number; product: Product; extras: Extra[] };
 type PaymentMethod = "Dinheiro" | "Cartão de débito" | "Cartão de crédito" | "Pix" | "Vale alimentação" | "Crediário";
@@ -19,7 +20,6 @@ const initialProducts: Product[] = [
   { name: "Açaí na Tigela", category: "Açaí • 400ml", price: 16, color: "berry", emoji: "🥣", extras: [{ name: "Morango", price: 3 }, { name: "Nutella", price: 4 }, { name: "Leite Ninho", price: 3 }] },
   { name: "Suco Natural", category: "Bebidas • 300ml", price: 9, color: "green", emoji: "🥤", extras: [] },
 ];
-const defaultExtras: Extra[] = [{ name: "Morango", price: 3 }, { name: "Banana", price: 2 }, { name: "Granola", price: 2 }, { name: "Nutella", price: 4 }, { name: "Leite Ninho", price: 3 }];
 const navItems = [{ label: "Visão geral", icon: LayoutDashboard }, { label: "PDV", icon: ShoppingCart }, { label: "Vendas", icon: Banknote }, { label: "Produtos & estoque", icon: Boxes }, { label: "Clientes", icon: Users }, { label: "Financeiro", icon: Wallet }, { label: "Equipe", icon: UserCog }];
 const money = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const loadProducts = (): Product[] => { try { const stored = localStorage.getItem("chalala-products"); return stored ? JSON.parse(stored) as Product[] : initialProducts; } catch { return initialProducts; } };
@@ -29,7 +29,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   const visibleNavItems = role === "admin" ? navItems : navItems.filter(item => item.label === "PDV" || item.label === "Vendas");
   const initials = displayName.split(" ").map(part => part[0]).slice(0,2).join("").toUpperCase();
   const [products, setProducts] = useState<Product[]>(loadProducts);
-  const [extras, setExtras] = useState<Extra[]>(() => { try { const stored = localStorage.getItem("chalala-extras"); return stored ? JSON.parse(stored) as Extra[] : defaultExtras; } catch { return defaultExtras; } });
+  const [extras, setExtras] = useState<Extra[]>([]);
   const [query, setQuery] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [mobileMenu, setMobileMenu] = useState(false);
@@ -52,11 +52,14 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     Promise.all([
       supabase.from("products").select("id,name,category,price,color,emoji,kind,extras").eq("is_active", true),
       supabase.rpc("open_cash_session"),
-    ]).then(([catalog, session]) => {
+      supabase.from("extras").select("id,name,price,is_active").eq("is_active", true).order("name"),
+    ]).then(([catalog, session, availableExtras]) => {
       if (!mounted) return;
       if (catalog.data?.length) setProducts(catalog.data as Product[]);
+      setExtras((availableExtras.data ?? []) as Extra[]);
       if (session.data) setCashSession(session.data as { id: string; register_id: string });
       if (session.error) setNotice("Não foi possível abrir um caixa. Verifique se há um caixa disponível.");
+      if (availableExtras.error) setNotice("Não foi possível carregar os complementos cadastrados.");
     });
     return () => { mounted = false; };
   }, []);
