@@ -223,6 +223,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     const rows = Array.from(document.querySelectorAll<HTMLElement>(".catalog-list-row"));
     rows.forEach((row, index) => {
       const product = products[index];
+      row.querySelectorAll(":scope > .product-status-toggle, :scope > .product-edit-trigger").forEach(element => element.remove());
       if (!product?.id) return;
       let actions = row.querySelector<HTMLDivElement>(".product-row-actions");
       if (!actions) {
