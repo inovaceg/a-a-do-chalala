@@ -79,32 +79,45 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     if (!modal) return;
     modal.querySelector(".combo-composition-editor")?.remove();
     if (dialog !== "product" || !formCombo) return;
+    let cancelled = false;
     const editor = document.createElement("section");
     editor.className = "combo-composition-editor form-extras";
     const heading = document.createElement("b");
     heading.textContent = "Itens incluídos no combo";
     const help = document.createElement("small");
-    const componentOptions = catalogProducts.filter(product => product.id && product.is_active !== false && product.kind !== "combo" && product.id !== editingProduct?.id);
-    help.textContent = componentOptions.length
-      ? "O preço informado é o valor final do combo. Escolha itens cadastrados no catálogo de produtos."
-      : "Cadastre primeiro os produtos que farão parte do combo.";
+    help.textContent = "Carregando produtos do catálogo…";
     editor.append(heading, help);
-    const choices = document.createElement("div");
-    for (const component of componentOptions) {
-      const label = document.createElement("label");
-      label.className = "extra-check";
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.value = component.id!;
-      checkbox.checked = Boolean(editingProduct?.combo_items?.some(item => item.id === component.id));
-      const text = document.createElement("span");
-      text.textContent = component.name;
-      label.append(checkbox, text);
-      choices.append(label);
-    }
-    editor.append(choices);
     modal.insertBefore(editor, modal.querySelector(".modal-actions"));
-  }, [dialog, formCombo, catalogProducts, editingProduct]);
+    const loadCatalogProducts = async () => {
+      const { data, error } = await supabase.from("products").select("id,name,category,price,color,emoji,kind,extras,combo_items,is_active").eq("is_active", true).order("name");
+      if (cancelled || !editor.isConnected) return;
+      if (error) {
+        help.textContent = "Não foi possível carregar os produtos cadastrados.";
+        return;
+      }
+      const componentOptions = (data ?? []).filter(product => product.kind !== "combo" && product.id !== editingProduct?.id);
+      help.textContent = componentOptions.length
+        ? "O preço informado é o valor final do combo. Marque os produtos cadastrados que ele inclui."
+        : "Cadastre primeiro os produtos que farão parte do combo.";
+      const choices = document.createElement("div");
+      for (const component of componentOptions) {
+        const label = document.createElement("label");
+        label.className = "extra-check";
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.value = component.id;
+        checkbox.dataset.productName = component.name;
+        checkbox.checked = Boolean(editingProduct?.combo_items?.some(item => item.id === component.id));
+        const text = document.createElement("span");
+        text.textContent = component.name;
+        label.append(checkbox, text);
+        choices.append(label);
+      }
+      editor.append(choices);
+    };
+    void loadCatalogProducts();
+    return () => { cancelled = true; editor.remove(); };
+  }, [dialog, formCombo, editingProduct]);
   const cartTotal = useMemo(() => cart.reduce((sum, item) => sum + item.product.price + item.extras.reduce((n, extra) => n + extra.price, 0), 0), [cart]);
   const filtered = products.filter(p => p.is_active !== false && `${p.name} ${p.category}`.toLowerCase().includes(query.toLowerCase()));
   const saveProducts = (next: Product[]) => { setProducts(next); setCatalogProducts(next); localStorage.setItem("chalala-products", JSON.stringify(next)); };
@@ -119,8 +132,9 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     if (dialog === "product") {
       const productExtras = formExtras.map(n => extras.find(e => e.name === n)).filter((e): e is Extra => Boolean(e));
       const selectedComboItems = Array.from(document.querySelectorAll<HTMLInputElement>(".combo-composition-editor input:checked")).map(input => {
-        const component = catalogProducts.find(item => item.id === input.value);
-        return component?.id ? { id: component.id, name: component.name, type: "product" as const, quantity: 1 } : null;
+        const id = input.value;
+        const name = input.dataset.productName;
+        return name ? { id, name, type: "product" as const, quantity: 1 } : null;
       }).filter((component): component is ComboComponent => component !== null);
       const category = `${formCategory}${formCombo ? " • Combo" : ""}`;
       const { data, error } = await supabase.rpc("save_product", { p_product_id: editingProduct?.id ?? null, p_name: name, p_category: category, p_price: price, p_kind: formCombo ? "combo" : "product", p_extras: productExtras, p_combo_items: selectedComboItems });
