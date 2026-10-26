@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Plus, X } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 type Method = "Dinheiro" | "Cartão de débito" | "Cartão de crédito" | "Pix" | "Vale alimentação" | "Crediário";
 type Line = { method: Method; amount: number };
@@ -44,10 +45,10 @@ export default function PaymentCheckout({ total, onCancel, onComplete }: Props) 
   const authorize = async () => {
     setError("");
     try {
-      const response = await fetch("/api/authorize-discount", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) });
-      if (!response.ok) {
-        const result = await response.json().catch(() => null);
-        throw new Error(result?.statusMessage || "Senha inválida ou senha da administradora não configurada no servidor.");
+      const { data, error: requestError } = await supabase.functions.invoke("authorize-discount", { body: { password } });
+      if (requestError || !data?.authorized) {
+        const response = requestError?.context instanceof Response ? await requestError.context.json().catch(() => null) : null;
+        throw new Error(response?.error || "Senha inválida ou senha da administradora não configurada.");
       }
       setApprovedDiscount(true);
     } catch (cause) {
