@@ -6,6 +6,7 @@ import TeamManagement from "@/components/TeamManagement";
 import SalesManagement from "@/components/SalesManagement";
 import CustomerManagement from "@/components/CustomerManagement";
 import ExtraManagement from "@/components/ExtraManagement";
+import CatalogCostTabs from "@/components/CatalogCostTabs";
 import { supabase } from "@/integrations/supabase/client";
 import { Activity, ArrowUpRight, Banknote, Bell, Boxes, CalendarDays, Check, ChevronDown, Clock3, Coffee, CreditCard, LayoutDashboard, Menu, Minus, Plus, Printer, Search, ShoppingBag, ShoppingCart, Users, UserCog, Wallet, LogOut, X } from "lucide-react";
 import "./pos-keyboard.css";
@@ -401,6 +402,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     <CouponStartDialog open={couponStartOpen} onCancel={cancelCouponStart} onConfirm={openCoupon} />
     <SalesManagement active={active === "Vendas"} />
     <CustomerManagement active={active === "Clientes"} />
+    <CatalogCostTabs active={active === "Produtos & estoque" && role === "admin"} products={catalogProducts} extras={extras} />
     <ExtraManagement active={active === "Produtos & estoque" && role === "admin"} extras={extras} onSaved={saved => setExtras(current => [...current.filter(extra => extra.id !== saved.id), saved].sort((a, b) => a.name.localeCompare(b.name)))} />
     <DashboardDataSync active={active === "Visão geral"} productCount={catalogProducts.filter(product => product.is_active !== false).length} extraCount={extras.length} />
   </div>;
