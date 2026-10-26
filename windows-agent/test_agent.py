@@ -59,6 +59,52 @@ class DriverPrintTests(unittest.TestCase):
         self.dc.AbortDoc.assert_called_once()
         self.dc.DeleteDC.assert_called_once()
 
+    def test_receipt_layout_includes_delivery_fields_and_wraps_long_values(self):
+        receipt_job = {
+            "id": "sample",
+            "payload": {
+                "title": "PEDIDO 42",
+                "receipt": {
+                    "orderNumber": "42",
+                    "receiptNumber": "SALE-UUID-ORIGINAL",
+                    "orderType": "DELIVERY",
+                    "customer": "CLIENTE COM NOME COMPRIDO PARA QUEBRA DE LINHA",
+                    "phone": "(32) 99999-0000",
+                    "customerAddress": {
+                        "street": "Rua das Palmeiras",
+                        "number": "123, bloco 2, apartamento 304",
+                        "neighborhood": "São Benedito",
+                        "city": "Juiz de Fora/MG",
+                        "complement": "Deixar na portaria ao lado da praça principal, entrada pelo portão azul",
+                        "reference": "Portaria do bloco 2",
+                        "postalCode": "36061-270",
+                    },
+                    "courier": {"name": "Entregador de teste", "phone": "(32) 98888-0000"},
+                    "products": [{"name": "Produto com descrição propositalmente extensa para validar que nenhuma parte seja cortada na bobina", "quantity": 2, "line_total": 58, "extras": [{"name": "Leite Ninho extra", "price": 3}], "note": "Sem granola; confirmar entrega na portaria."}],
+                    "payments": [{"method": "Dinheiro", "amount": 80}],
+                    "subtotal": 70,
+                    "discount": 2,
+                    "fees": [{"label": "Taxa de entrega", "amount": 2}],
+                    "total": 70,
+                    "change": 10,
+                },
+            },
+        }
+        rows = agent.receipt_rows(receipt_job)
+        texts = [row.get("text", "") for row in rows]
+        self.assertTrue(any("DADOS DA ENTREGA" in text for text in texts))
+        self.assertTrue(any("REFERÊNCIA: Portaria do bloco 2" in text for text in texts))
+        self.assertTrue(any(row.get("kind") == "product" and row["quantity"] == "2x" for row in rows))
+        wrapped = agent.split_to_width("Produto com uma descrição extensa e sem cortes", 12, len)
+        self.assertGreater(len(wrapped), 1)
+        self.assertEqual("".join(wrapped).replace(" ", ""), "Produtocomumadescriçãoextensaesemcortes")
+
+    def test_non_delivery_omits_delivery_section_and_marks_counter(self):
+        rows = agent.receipt_rows({"id": "sample", "payload": {"title": "PEDIDO 9", "receipt": {"orderNumber": "9", "orderType": "BALCÃO", "products": []}}})
+        texts = [row.get("text", "") for row in rows]
+        self.assertIn("TIPO: BALCÃO", texts)
+        self.assertNotIn("DADOS DA ENTREGA", texts)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
