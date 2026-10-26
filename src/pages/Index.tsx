@@ -6,6 +6,7 @@ import ExtraManagement from "@/components/ExtraManagement";
 import { supabase } from "@/integrations/supabase/client";
 import { Activity, ArrowUpRight, Banknote, Bell, Boxes, CalendarDays, Check, ChevronDown, Clock3, Coffee, CreditCard, LayoutDashboard, Menu, Minus, Plus, Printer, Search, ShoppingBag, ShoppingCart, Users, UserCog, Wallet, LogOut, X } from "lucide-react";
 import "./pos-keyboard.css";
+import "./product-edit.css";
 
 type Extra = { id?: string; name: string; price: number; is_active?: boolean };
 type Product = { id?: string; name: string; category: string; price: number; color: string; emoji: string; kind?: "combo" | "product"; extras?: Extra[] };
@@ -35,6 +36,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   const [mobileMenu, setMobileMenu] = useState(false);
   const [notice, setNotice] = useState("");
   const [dialog, setDialog] = useState<"product" | "extra" | null>(null);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [customize, setCustomize] = useState<Product | null>(null);
   const [closedSale, setClosedSale] = useState<{ items: CartItem[]; total: number; id: string; discount: number; payments: PaymentLine[]; change: number; creditCustomer: string; creditDueDate: string } | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
@@ -75,8 +77,13 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     const price = Number(formPrice);
     if (!name || !Number.isFinite(price) || price < 0) return;
     if (dialog === "product") {
-      saveProducts([...products, { name, category: `${formCategory}${formCombo ? " • Combo" : ""}`, price, color: "lilac", emoji: formCombo ? "🍨" : "🥣", kind: formCombo ? "combo" : "product", extras: formExtras.map(n => extras.find(e => e.name === n)).filter((e): e is Extra => Boolean(e)) }]);
-      setNotice(formCombo ? "Combo cadastrado com sucesso." : "Produto cadastrado com sucesso.");
+      const productExtras = formExtras.map(n => extras.find(e => e.name === n)).filter((e): e is Extra => Boolean(e));
+      const category = `${formCategory}${formCombo ? " • Combo" : ""}`;
+      const { data, error } = await supabase.rpc("save_product", { p_product_id: editingProduct?.id ?? null, p_name: name, p_category: category, p_price: price, p_kind: formCombo ? "combo" : "product", p_extras: productExtras });
+      if (error || !data) { setNotice("Não foi possível salvar o produto."); return; }
+      const saved = { ...(data as Product), price: Number((data as Product).price), color: editingProduct?.color ?? "lilac", emoji: editingProduct?.emoji ?? (formCombo ? "🍨" : "🥣"), extras: productExtras };
+      saveProducts(editingProduct ? products.map(product => product.id === editingProduct.id ? saved : product) : [...products, saved]);
+      setNotice(editingProduct ? "Produto atualizado com sucesso." : formCombo ? "Combo cadastrado com sucesso." : "Produto cadastrado com sucesso.");
     } else {
       const { data, error } = await supabase.rpc("save_extra", { p_extra_id: null, p_name: name, p_price: price });
       if (error || !data) { setNotice(error?.message.toLowerCase().includes("already exists") ? "Já existe um complemento com esse nome." : "Não foi possível salvar o complemento."); return; }
@@ -166,7 +173,18 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     setCheckoutOpen(false);
   };
   const totalOf = (item: CartItem) => item.product.price + item.extras.reduce((sum, e) => sum + e.price, 0);
-  const openForm = (type: "product" | "extra") => { setFormName(""); setFormPrice(""); setFormCategory("Açaí"); setFormCombo(false); setFormExtras([]); setDialog(type); };
+  const openForm = (type: "product" | "extra", product?: Product) => { setEditingProduct(product ?? null); setFormName(product?.name ?? ""); setFormPrice(product ? String(product.price) : ""); setFormCategory(product?.category.split(" • ")[0] ?? "Açaí"); setFormCombo(product?.kind === "combo" || Boolean(product?.category.includes("Combo"))); setFormExtras(product?.extras?.map(extra => extra.name) ?? []); setDialog(type); };
+  useEffect(() => {
+    const handleProductRow = (event: MouseEvent) => {
+      if (role !== "admin" || active !== "Produtos & estoque") return;
+      const row = (event.target as HTMLElement).closest(".catalog-list-row");
+      if (!row) return;
+      const product = products.find(item => item.name === row.querySelector("b")?.textContent);
+      if (product) openForm("product", product);
+    };
+    document.addEventListener("click", handleProductRow);
+    return () => document.removeEventListener("click", handleProductRow);
+  }, [active, products, role]);
   const startNewSale = () => {
     if (active === "PDV" && cart.length) {
       setNotice("Finalize ou limpe o pedido atual antes de iniciar outra venda.");
