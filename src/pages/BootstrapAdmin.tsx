@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import "./auth.css";
 
 export default function BootstrapAdmin() {
-  const [ready, setReady] = useState<boolean | null>(null);
+  const [ready, setReady] = useState<"checking" | "setup" | "configured" | "error">("checking");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -13,8 +13,10 @@ export default function BootstrapAdmin() {
 
   useEffect(() => {
     supabase.functions.invoke("bootstrap-admin", { body: { action: "status" } }).then(({ data, error: requestError }) => {
-      setReady(!requestError && data?.configured === false);
-      if (requestError) setError("Não foi possível verificar a configuração. Confirme a configuração segura do serviço Supabase.");
+      if (requestError || typeof data?.configured !== "boolean") {
+        setReady("error");
+        setError("Não foi possível verificar a configuração. Confirme a implantação da função no Supabase.");
+      } else setReady(data.configured ? "configured" : "setup");
     });
   }, []);
 
@@ -39,8 +41,9 @@ export default function BootstrapAdmin() {
     window.location.assign("/");
   };
 
-  if (ready === null) return <main className="auth-screen"><section className="setup-card"><p>Verificando a configuração segura...</p></section></main>;
-  if (ready === false) return <main className="auth-screen"><section className="setup-card"><span className="auth-kicker">AÇAÍ DO CHALALA</span><h1>A administradora já está configurada</h1><p>Entre com a conta de administradora para gerenciar a equipe.</p><a className="setup-submit" href="/login">Ir para o login</a></section></main>;
+  if (ready === "checking") return <main className="auth-screen"><section className="setup-card"><p>Verificando a configuração segura...</p></section></main>;
+  if (ready === "error") return <main className="auth-screen"><section className="setup-card"><span className="auth-kicker">AÇAÍ DO CHALALA</span><h1>Configuração indisponível</h1><p>{error}</p><a className="setup-submit" href="/login">Voltar ao login</a></section></main>;
+  if (ready === "configured") return <main className="auth-screen"><section className="setup-card"><span className="auth-kicker">AÇAÍ DO CHALALA</span><h1>A administradora já está configurada</h1><p>Entre com a conta de administradora para gerenciar a equipe.</p><a className="setup-submit" href="/login">Ir para o login</a></section></main>;
 
   return <main className="auth-screen setup-screen"><form className="setup-card" onSubmit={createAdmin}><div className="auth-logo-mark"><span>AC</span></div><span className="auth-kicker">CONFIGURAÇÃO INICIAL · USO ÚNICO</span><h1>Crie a conta da administradora</h1><p>Essa conta terá acesso a todo o sistema e poderá cadastrar operadoras.</p><label>Nome<input required value={name} onChange={e => setName(e.target.value)} autoComplete="name" placeholder="Nome da administradora"/></label><label>E-mail<input required type="email" value={email} onChange={e => setEmail(e.target.value)} autoComplete="email" placeholder="nome@empresa.com"/></label><label>Senha de acesso<input required minLength={8} type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="new-password" placeholder="Mínimo de 8 caracteres"/></label><label>Chave segura de configuração<input required type="password" value={setupSecret} onChange={e => setSetupSecret(e.target.value)} autoComplete="off" placeholder="Chave definida nos segredos Supabase"/></label>{error && <p className="auth-error" role="alert">{error}</p>}<button className="setup-submit" disabled={saving}>{saving ? "Criando conta…" : "Criar administradora"}</button></form></main>;
 }

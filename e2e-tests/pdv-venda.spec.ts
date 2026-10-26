@@ -1,11 +1,29 @@
 import { test, expect } from "@playwright/test";
+import { createTestAccount, signInThroughApp, type TestAccount } from "./fixtures/supabase-user";
 
-test("adiciona produto e conclui venda no PDV", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Bom dia, Mariana" })).toBeVisible();
-  await page.getByRole("button", { name: "Nova venda", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Monte seu pedido" })).toBeVisible();
-  await expect(page.getByText("Novo pedido iniciado. Selecione os produtos para começar.")).toBeVisible();
+let operator: TestAccount;
+let cleanup: () => Promise<void>;
+
+test.beforeEach(async () => {
+  const created = await createTestAccount("operator");
+  operator = created.account;
+  cleanup = created.cleanup;
+});
+
+test.afterEach(async () => {
+  if (cleanup) await cleanup();
+});
+
+test("operadora só acessa PDV e vendas e conclui uma venda com pagamento dividido", async ({ page }) => {
+  await signInThroughApp(page, operator);
+  await expect(page.getByRole("heading", { name: "PDV", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "PDV" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Vendas" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Visão geral" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Produtos & estoque" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Financeiro" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Equipe" })).toHaveCount(0);
+
   await page.getByRole("button", { name: "Adicionar Açaí Tradicional" }).click();
   await expect(page.getByText("Escolha os complementos; cada adicional é cobrado por fora.")).toBeVisible();
   await page.getByRole("button", { name: "Adicionar ao pedido" }).click();
