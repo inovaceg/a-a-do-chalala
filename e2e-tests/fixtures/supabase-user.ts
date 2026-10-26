@@ -29,6 +29,11 @@ export async function createTestAccount(role: "admin" | "operator" = "operator")
       if (extraError || !extra) throw new Error(extraError?.message || "Persisted extra was not found.");
       return extra;
     },
+    verifyPrintJobs: async () => {
+      const { data: jobs, error: jobsError } = await admin.from("print_jobs").select("id,status,payload").eq("created_by", data.user.id);
+      if (jobsError) throw new Error(jobsError.message);
+      return jobs ?? [];
+    },
     cleanupExtra: async (name: string) => {
       const { error: extraError } = await admin.from("extras").delete().eq("name", name);
       if (extraError) throw new Error(`Could not clean up test extra: ${extraError.message}`);
@@ -41,6 +46,7 @@ export async function createTestAccount(role: "admin" | "operator" = "operator")
         await admin.from("cash_movements").delete().in("cash_session_id", sessionIds);
         await admin.from("cash_sessions").delete().in("id", sessionIds);
       }
+      await admin.from("print_jobs").delete().eq("created_by", data.user.id);
       const { error: deleteError } = await admin.auth.admin.deleteUser(data.user.id);
       if (deleteError) throw new Error(`Could not clean up test user: ${deleteError.message}`);
     },

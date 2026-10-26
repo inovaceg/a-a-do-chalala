@@ -276,6 +276,16 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     });
     setCheckoutSaving(false);
     if (error || !data) { setNotice(error?.message.includes("discount") ? "Somente uma administradora pode aplicar desconto." : error?.message || "Não foi possível registrar a venda."); return; }
+    const { data: { user } } = await supabase.auth.getUser();
+    const { data: memberships } = user ? await supabase.from("store_memberships").select("store_id,stores(name)").eq("user_id", user.id).limit(1) : { data: null };
+    const membership = memberships?.[0] as { store_id: string; stores: { name: string }[] | { name: string } | null } | undefined;
+    const associatedStore = Array.isArray(membership?.stores) ? membership.stores[0] : membership?.stores;
+    if (user && membership) {
+      const items = cart.map(item => `${item.product.name}${item.extras.length ? ` (${item.extras.map(extra => extra.name).join(", ")})` : ""} · ${money(totalOf(item))}`);
+      const receiptLines = [{ text: associatedStore?.name ?? "AÇAÍ DO CHALALA", bold: true }, { text: `COMANDA ${data.receipt_number}`, bold: true }, ...items.map(text => ({ text })), { text: `TOTAL ${money(Number(data.total))}`, bold: true }, ...(currentSaleCustomer ? [{ text: `CLIENTE: ${currentSaleCustomer.name}` }] : []), ...(currentSaleDelivery ? [{ text: `DELIVERY: ${currentDeliveryAddress || "ENDEREÇO NÃO INFORMADO"}` }] : [])];
+      const { error: printError } = await supabase.from("print_jobs").insert({ store_id: membership.store_id, created_by: user.id, payload: { kind: "sale", title: `PEDIDO ${data.receipt_number}`, store: associatedStore?.name ?? "AÇAÍ DO CHALALA", createdAt: new Date().toISOString(), lines: receiptLines } });
+      if (printError) setNotice("Venda registrada, mas não foi possível enviar o comprovante à fila de impressão.");
+    }
     setClosedSale({ items: [...cart], total: Number(data.total), id: data.receipt_number, customer: currentSaleCustomer, courier: currentSaleCourier, delivery: currentSaleDelivery, deliveryAddress: currentDeliveryAddress, ...payment });
     setCurrentSaleCustomer(null);
     setCurrentSaleCourier(null);

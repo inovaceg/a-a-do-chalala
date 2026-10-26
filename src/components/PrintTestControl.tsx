@@ -29,10 +29,11 @@ export default function PrintTestControl() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       const { data: memberships } = await supabase.from("store_memberships").select("store_id,stores(id,name)").eq("user_id", user.id).limit(1);
-      const membership = memberships?.[0] as { store_id: string; stores: { id: string; name: string } | null } | undefined;
+      const membership = memberships?.[0] as { store_id: string; stores: { id: string; name: string }[] | { id: string; name: string } | null } | undefined;
+      const relatedStore = Array.isArray(membership?.stores) ? membership.stores[0] : membership?.stores;
       if (mounted && membership) {
         setStoreId(membership.store_id);
-        setStoreName(membership.stores?.name ?? "AÇAÍ DO CHALALA");
+        setStoreName(relatedStore?.name ?? "AÇAÍ DO CHALALA");
         void refresh(membership.store_id);
       }
     };

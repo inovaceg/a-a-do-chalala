@@ -4,6 +4,7 @@ import { createTestAccount, signInThroughApp, type TestAccount } from "./fixture
 let operator: TestAccount;
 let cleanup: () => Promise<void>;
 let verifySale: (receiptNumber: string) => ReturnType<Awaited<ReturnType<typeof createTestAccount>>["verifySale"]>;
+let verifyPrintJobs: () => ReturnType<Awaited<ReturnType<typeof createTestAccount>>["verifyPrintJobs"]>;
 
 test.beforeEach(async () => {
   const created = await createTestAccount("operator");
