@@ -348,23 +348,23 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     const width = 80;
     const margin = 3;
     const contentWidth = width - margin * 2;
-    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: [width, 500] });
+    const measureDoc = new jsPDF({ orientation: "portrait", unit: "mm", format: [width, 500] });
     type RenderedRow = (typeof rows)[number] & { lines: string[]; leading: number };
     const rendered: RenderedRow[] = rows.map(row => {
       const kind = row.kind;
       const font = row.bold || ["product", "section", "highlight", "total"].includes(kind) ? "bold" : row.italic ? "italic" : "normal";
       const size = kind === "divider" ? 7 : row.size ?? 8;
-      doc.setFont("helvetica", font);
-      doc.setFontSize(size);
+      measureDoc.setFont("helvetica", font);
+      measureDoc.setFontSize(size);
       const text = row.text ?? "";
       const lines = kind === "product"
-        ? doc.splitTextToSize(row.description ?? "", Math.max(10, contentWidth - doc.getTextWidth(row.value ?? "") - 16)) as string[]
-        : kind === "divider" ? [""] : doc.splitTextToSize(text, contentWidth - (["highlight", "total"].includes(kind) ? 4 : 0)) as string[];
+        ? measureDoc.splitTextToSize(row.description ?? "", Math.max(10, contentWidth - measureDoc.getTextWidth(row.value ?? "") - 16)) as string[]
+        : kind === "divider" ? [""] : measureDoc.splitTextToSize(text, contentWidth - (["highlight", "total"].includes(kind) ? 4 : 0)) as string[];
       return { ...row, size, lines, leading: size * 1.3 * 0.3528 + 1 };
     });
     const gap = 1.5;
     const height = 10 + rendered.reduce((sum, row) => sum + (row.kind === "highlight" || row.kind === "total" ? row.lines.length * row.leading + 2 : Math.max(1, row.lines.length) * row.leading) + gap, 0);
-    doc.internal.pageSize.setHeight(height);
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: [width, height] });
     let y = 5;
     for (const row of rendered) {
       const kind = row.kind;
