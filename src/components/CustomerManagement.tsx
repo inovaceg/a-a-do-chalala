@@ -54,9 +54,9 @@ export default function CustomerManagement({ active }: { active: boolean }) {
 
   const loadCustomers = useCallback(async () => {
     setLoading(true);
-    const [{ data, error: requestError }, { data: salesData, error: salesError }] = await Promise.all([
+    const [{ data, error: requestError }, { data: consumptionData, error: salesError }] = await Promise.all([
       supabase.from("customers").select("id,name,whatsapp,street,address_number,neighborhood,city,address_complement,postal_code,marketing_opt_out").order("name"),
-      supabase.from("sales").select("customer_id,sale_items(product_name,quantity)").eq("status", "completed").not("customer_id", "is", null),
+      supabase.rpc("customer_item_consumption"),
     ]);
     if (requestError) setError("Não foi possível carregar os clientes.");
     else {
@@ -68,11 +68,10 @@ export default function CustomerManagement({ active }: { active: boolean }) {
       setConsumptionError("Não foi possível carregar o histórico de compras.");
     } else {
       const totals = new Map<string, Map<string, number>>();
-      (salesData ?? []).forEach(sale => {
-        if (!sale.customer_id) return;
-        const customerItems = totals.get(sale.customer_id) ?? new Map<string, number>();
-        (sale.sale_items ?? []).forEach(item => customerItems.set(item.product_name, (customerItems.get(item.product_name) ?? 0) + Number(item.quantity)));
-        totals.set(sale.customer_id, customerItems);
+      (consumptionData ?? []).forEach(item => {
+        const customerItems = totals.get(item.customer_id) ?? new Map<string, number>();
+        customerItems.set(item.product_name, Number(item.quantity));
+        totals.set(item.customer_id, customerItems);
       });
       setConsumption(new Map([...totals].map(([id, items]) => [id, [...items].map(([name, quantity]) => ({ name, quantity })).sort((a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name, "pt-BR")).slice(0, 2)] as const)));
       setConsumptionError("");
