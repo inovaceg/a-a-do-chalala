@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Ban, Pencil, Plus, Printer, RefreshCw, Trash2, X } from "lucide-react";
+import { jsPDF } from "jspdf";
 import { supabase } from "@/integrations/supabase/client";
 import SalesReportPanel, { SalesReportTabs, type ReportType } from "./SalesReportPanel";
 import "./sales-management.css";
@@ -11,7 +12,7 @@ type Product = { id: string; name: string; price: number; extras: Extra[] };
 type SaleItem = { id: string; product_id: string | null; product_name: string; quantity: number; unit_price: number; extras: Extra[]; line_total: number };
 type PaymentMethod = "Dinheiro" | "Cartão de débito" | "Cartão de crédito" | "Pix" | "Vale alimentação" | "Crediário";
 type SalePayment = { id: string; method: PaymentMethod; amount: number };
-type Sale = { id: string; receipt_number: string; total: number; subtotal: number; discount_amount: number; change_amount: number; status: "completed" | "cancelled"; created_at: string; credit_customer: string | null; credit_due_date: string | null; customer_id: string | null; customer_name: string | null; customer_whatsapp: string | null; courier_id: string | null; courier_name?: string; sale_items: SaleItem[]; sale_payments: SalePayment[] };
+type Sale = { id: string; receipt_number: string; total: number; subtotal: number; discount_amount: number; change_amount: number; status: "completed" | "cancelled"; created_at: string; credit_customer: string | null; credit_due_date: string | null; customer_id: string | null; customer_name: string | null; customer_whatsapp: string | null; courier_id: string | null; courier_name?: string; is_delivery?: boolean; delivery_address?: string | null; sale_items: SaleItem[]; sale_payments: SalePayment[] };
 type EditItem = { key: string; productId: string; quantity: number; extras: Extra[] };
 type EditPayment = { key: string; method: PaymentMethod; amount: number };
 const methods: PaymentMethod[] = ["Dinheiro", "Cartão de débito", "Cartão de crédito", "Pix", "Vale alimentação", "Crediário"];
@@ -36,7 +37,7 @@ export default function SalesManagement({ active, role }: { active: boolean; rol
   const loadSales = useCallback(async () => {
     setLoading(true);
     setError("");
-    let salesQuery = supabase.from("sales").select("id,receipt_number,total,subtotal,discount_amount,change_amount,status,created_at,credit_customer,credit_due_date,customer_id,customer_name,customer_whatsapp,courier_id,sale_items(id,product_id,product_name,quantity,unit_price,extras,line_total),sale_payments(id,method,amount)").order("created_at", { ascending: false }).limit(1000);
+    let salesQuery = supabase.from("sales").select("id,receipt_number,total,subtotal,discount_amount,change_amount,status,created_at,credit_customer,credit_due_date,customer_id,customer_name,customer_whatsapp,courier_id,is_delivery,delivery_address,sale_items(id,product_id,product_name,quantity,unit_price,extras,line_total),sale_payments(id,method,amount)").order("created_at", { ascending: false }).limit(1000);
     if (role === "operator") {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (userError || !user) {
@@ -124,19 +125,48 @@ export default function SalesManagement({ active, role }: { active: boolean; rol
   };
 
   const reprintSale = (sale: Sale) => {
-    const escapeHtml = (value: string) => value.replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character] ?? character);
-    const popup = window.open("", "_blank", "width=520,height=760");
-    if (!popup) {
-      setError("O navegador bloqueou a janela do comprovante. Permita pop-ups para gerar o PDF.");
-      return;
+    const orderNumber = (sale.receipt_number.match(/\d+$/)?.[0] ?? sale.receipt_number).slice(-6).padStart(6, "0");
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: [80, 400] });
+    const rows: { text: string; size: number; bold?: boolean; align?: "left" | "center" | "right" }[] = [
+      { text: "AÇAÍ DO CHALALA", size: 15, bold: true, align: "center" },
+      { text: "O sabor que conquista!", size: 9, align: "center" },
+      { text: "Endereço: R. Luís Marchini, 228 - São Benedito, Juiz de Fora - MG, 36061-270", size: 8, align: "center" },
+      { text: "--------------------------------", size: 8, align: "center" },
+      { text: "COMPROVANTE DE PEDIDO", size: 10, bold: true, align: "center" },
+      { text: "--------------------------------", size: 8, align: "center" },
+      { text: `PEDIDO Nº ${orderNumber}`, size: 13, bold: true, align: "center" },
+      { text: `DATA: ${new Date(sale.created_at).toLocaleString("pt-BR")}`, size: 8 },
+      { text: `TIPO: ${sale.is_delivery ? "DELIVERY" : "NÃO DELIVERY"}`, size: 9, bold: true },
+    ];
+    if (sale.customer_name) rows.push({ text: `CLIENTE: ${sale.customer_name}${sale.customer_whatsapp ? ` · ${sale.customer_whatsapp}` : ""}`, size: 8 });
+    if (sale.delivery_address) rows.push({ text: `ENDEREÇO DE ENTREGA: ${sale.delivery_address}`, size: 8 });
+    if (sale.courier_name && sale.courier_name !== "Sem motoboy") rows.push({ text: `ENTREGADOR: ${sale.courier_name}`, size: 8 });
+    rows.push({ text: "--------------------------------", size: 8, align: "center" });
+    for (const item of sale.sale_items) {
+      rows.push({ text: `${item.quantity} x ${item.product_name}  ${money(Number(item.line_total))}`, size: 9, bold: true });
+      for (const extra of item.extras ?? []) rows.push({ text: `  + ${extra.name} (${money(Number(extra.price))})`, size: 8 });
     }
-    const itemRows = sale.sale_items.map(item => `<div class="item"><div><b>${item.quantity}× ${escapeHtml(item.product_name)}</b>${(item.extras ?? []).map(extra => `<small>+ ${escapeHtml(extra.name)} (${money(Number(extra.price))})</small>`).join("")}</div><strong>${money(Number(item.line_total))}</strong></div>`).join("");
-    const discount = Number(sale.discount_amount) > 0 ? `<div class="row"><span>Desconto</span><b>− ${money(Number(sale.discount_amount))}</b></div>` : "";
-    const paymentsHtml = sale.sale_payments.map(payment => `<div class="row"><span>${escapeHtml(payment.method)}</span><b>${money(Number(payment.amount))}</b></div>`).join("");
-    const change = Number(sale.change_amount) > 0 ? `<div class="row"><span>Troco</span><b>${money(Number(sale.change_amount))}</b></div>` : "";
-    const customer = sale.customer_name ? `<p>Cliente: ${escapeHtml(sale.customer_name)}</p>` : "";
-    popup.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cupom ${escapeHtml(sale.receipt_number)}</title><style>*{box-sizing:border-box}body{margin:0;background:#f4f1f5;color:#302b35;font:14px Arial,sans-serif}.toolbar{position:sticky;top:0;display:flex;justify-content:center;gap:10px;padding:14px;background:#fff;border-bottom:1px solid #ddd}.toolbar button{padding:10px 16px;border:0;border-radius:9px;background:#5b117a;color:#fff;font-weight:700;cursor:pointer}.toolbar button:last-child{background:#eee;color:#302b35}.receipt{width:min(80mm,calc(100% - 32px));margin:24px auto;padding:20px;background:#fff}.brand{text-align:center;font-weight:800;color:#5b117a}.receipt h1{text-align:center;font-size:17px}.meta{text-align:center;font-size:12px;color:#625b66}.items{margin:18px 0;border-top:1px dashed #aaa}.item,.row{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px dashed #ddd}.item small{display:block;margin-top:4px}.row{font-size:12px}.total{display:flex;justify-content:space-between;padding-top:14px;font-size:16px;font-weight:800}.status{text-align:center;margin-top:16px;font-size:10px}@media print{body{background:#fff}.toolbar{display:none}.receipt{width:72mm;margin:0;padding:3mm}.brand{color:#000}.items{margin-top:10px}}</style></head><body><nav class="toolbar"><button onclick="window.print()">Imprimir / Salvar PDF</button><button onclick="window.close()">Fechar</button></nav><main class="receipt"><div class="brand">AÇAÍ DO CHALALA</div><h1>Comprovante não fiscal</h1><div class="meta">Venda #${escapeHtml(sale.receipt_number)} · ${escapeHtml(dateTime(sale.created_at))}</div><div class="items">${itemRows}</div>${discount}${paymentsHtml}${change}${customer}<div class="total"><span>TOTAL</span><span>${money(Number(sale.total))}</span></div><div class="status">Venda ${sale.status === "completed" ? "concluída" : "cancelada"}</div></main></body></html>`);
-    popup.document.close();
+    rows.push({ text: "--------------------------------", size: 8, align: "center" });
+    for (const payment of sale.sale_payments) rows.push({ text: `PAGAMENTO: ${payment.method}  ${money(Number(payment.amount))}`, size: 8 });
+    if (Number(sale.discount_amount) > 0) rows.push({ text: `DESCONTO: ${money(Number(sale.discount_amount))}`, size: 8 });
+    if (Number(sale.change_amount) > 0) rows.push({ text: `TROCO: ${money(Number(sale.change_amount))}`, size: 8 });
+    rows.push({ text: `TOTAL  ${money(Number(sale.total))}`, size: 12, bold: true, align: "right" });
+    rows.push({ text: "--------------------------------", size: 8, align: "center" }, { text: "Obrigado pela preferência!", size: 9, bold: true, align: "center" }, { text: "Volte sempre ao Açaí do Chalala!", size: 8, align: "center" });
+    const rendered = rows.flatMap(row => {
+      doc.setFont("helvetica", row.bold ? "bold" : "normal");
+      doc.setFontSize(row.size);
+      return doc.splitTextToSize(row.text, 74).map(text => ({ ...row, text }));
+    });
+    const pageHeight = rendered.reduce((height, row) => height + row.size * 0.48 + 2, 10);
+    doc.internal.pageSize.setHeight(pageHeight);
+    let y = 5;
+    for (const row of rendered) {
+      doc.setFont("helvetica", row.bold ? "bold" : "normal");
+      doc.setFontSize(row.size);
+      doc.text(row.text, row.align === "center" ? 40 : row.align === "right" ? 77 : 3, y, { align: row.align ?? "left" });
+      y += row.size * 0.48 + 2;
+    }
+    doc.save(`comprovante-venda-${sale.receipt_number}.pdf`);
     setError("");
   };
 
