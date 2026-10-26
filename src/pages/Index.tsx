@@ -65,6 +65,9 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   const [cashSession, setCashSession] = useState<{ id: string; register_id: string } | null>(null);
   const [checkoutSaving, setCheckoutSaving] = useState(false);
   useEffect(() => {
+    document.querySelector<HTMLAnchorElement>(".help-card a")?.setAttribute("href", "https://wa.me/5532984022567");
+  }, []);
+  useEffect(() => {
     let mounted = true;
     const catalogQuery = supabase.from("products").select("id,name,category,price,cost_price,color,emoji,kind,extras,combo_items,is_active");
     if (role !== "admin") catalogQuery.eq("is_active", true);
