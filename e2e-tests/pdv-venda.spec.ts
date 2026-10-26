@@ -11,8 +11,15 @@ test("adiciona produto e conclui venda no PDV", async ({ page }) => {
   await page.getByRole("button", { name: "Adicionar ao pedido" }).click();
   await expect(page.getByText("R$ 18,00").first()).toBeVisible();
   await page.getByRole("button", { name: /Cobrar pedido/ }).click();
+  const checkout = page.getByRole("dialog");
+  await expect(checkout.getByRole("heading", { name: "Pagamento e troco" })).toBeVisible();
+  await checkout.getByRole("button", { name: "Adicionar forma" }).click();
+  await checkout.getByLabel("Valor da forma 1").fill("10");
+  await checkout.getByLabel("Valor da forma 2").fill("8");
+  await checkout.getByRole("button", { name: "Concluir venda" }).click();
   const receipt = page.getByRole("dialog");
   await expect(receipt.getByRole("heading", { name: "Comprovante não fiscal" })).toBeVisible();
+  await expect(receipt.getByText("PIX", { exact: true })).toBeVisible();
   await expect(receipt.getByText("Açaí Tradicional", { exact: true })).toBeVisible();
   await expect(receipt.getByRole("button", { name: "Imprimir / Salvar PDF" })).toBeVisible();
 });
