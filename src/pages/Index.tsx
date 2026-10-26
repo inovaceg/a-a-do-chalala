@@ -4,6 +4,7 @@ import TeamManagement from "@/components/TeamManagement";
 import SalesManagement from "@/components/SalesManagement";
 import { supabase } from "@/integrations/supabase/client";
 import { Activity, ArrowUpRight, Banknote, Bell, Boxes, CalendarDays, Check, ChevronDown, Clock3, Coffee, CreditCard, LayoutDashboard, Menu, Minus, Plus, Printer, Search, ShoppingBag, ShoppingCart, Users, UserCog, Wallet, LogOut, X } from "lucide-react";
+import "./pos-keyboard.css";
 
 type Extra = { name: string; price: number };
 type Product = { id?: string; name: string; category: string; price: number; color: string; emoji: string; kind?: "combo" | "product"; extras?: Extra[] };
@@ -38,6 +39,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   const [closedSale, setClosedSale] = useState<{ items: CartItem[]; total: number; id: string; discount: number; payments: PaymentLine[]; change: number; creditCustomer: string; creditDueDate: string } | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [selectedExtras, setSelectedExtras] = useState<string[]>([]);
+  const [selectedExtraIndex, setSelectedExtraIndex] = useState(0);
   const [formName, setFormName] = useState("");
   const [formPrice, setFormPrice] = useState("");
   const [formCategory, setFormCategory] = useState("Açaí");
@@ -76,6 +78,47 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
   }, [active, checkoutOpen, customize, dialog, cart.length]);
+
+  useEffect(() => {
+    if (!customize) return;
+    setSelectedExtraIndex(0);
+    const frame = window.requestAnimationFrame(() => document.querySelector<HTMLInputElement>(".customize-modal .customize-extras input[type=checkbox]")?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [customize]);
+
+  useEffect(() => {
+    if (!customize) return;
+    const handleCustomizeKeys = (event: KeyboardEvent) => {
+      const modal = document.querySelector<HTMLElement>(".customize-modal");
+      if (!modal || !modal.contains(event.target as Node)) return;
+      const choices = Array.from(modal.querySelectorAll<HTMLInputElement>(".customize-extras input[type=checkbox]"));
+      const focusedIndex = choices.indexOf(document.activeElement as HTMLInputElement);
+      if ((event.key === "ArrowDown" || event.key === "ArrowUp") && choices.length) {
+        event.preventDefault();
+        const current = focusedIndex < 0 ? selectedExtraIndex : focusedIndex;
+        const next = Math.max(0, Math.min(choices.length - 1, current + (event.key === "ArrowDown" ? 1 : -1)));
+        setSelectedExtraIndex(next);
+        choices[next]?.focus();
+      } else if (event.key === "Enter" && focusedIndex >= 0) {
+        event.preventDefault();
+        const name = (customize.extras ?? extras)[focusedIndex]?.name;
+        if (name) setSelectedExtras(current => current.includes(name) ? current.filter(extra => extra !== name) : [...current, name]);
+        const next = choices[focusedIndex + 1];
+        if (next) {
+          setSelectedExtraIndex(focusedIndex + 1);
+          next.focus();
+        } else {
+          modal.querySelector<HTMLButtonElement>(".modal-actions .primary-button")?.focus();
+        }
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        setCustomize(null);
+      }
+    };
+    window.addEventListener("keydown", handleCustomizeKeys);
+    return () => window.removeEventListener("keydown", handleCustomizeKeys);
+  }, [customize, extras, selectedExtraIndex]);
+
   const completeCheckout = async (payment: { discount: number; payments: PaymentLine[]; change: number; creditCustomer: string; creditDueDate: string }) => {
     if (!cashSession) { setNotice("Não há uma sessão de caixa aberta para esta venda."); return; }
     if (cart.some(item => !item.product.id)) { setNotice("Um produto do pedido não está sincronizado com o catálogo. Atualize o catálogo antes de vender."); return; }
