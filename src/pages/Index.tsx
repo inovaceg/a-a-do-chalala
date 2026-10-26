@@ -1,19 +1,64 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { useMemo, useState } from "react";
+import { Activity, ArrowDownRight, ArrowUpRight, Banknote, Bell, Boxes, CalendarDays, Check, ChevronDown, CircleDollarSign, Clock3, Coffee, CreditCard, LayoutDashboard, Menu, Minus, Plus, Printer, Search, ShoppingBag, ShoppingCart, Users, Wallet, X } from "lucide-react";
 
-import { MadeWithDyad } from "@/components/made-with-dyad";
+type Product = { name: string; category: string; price: number; color: string; emoji: string };
+const products: Product[] = [
+  { name: "Açaí Tradicional", category: "Açaí • 500ml", price: 18, color: "berry", emoji: "🍇" },
+  { name: "Açaí Especial", category: "Açaí • 700ml", price: 25, color: "lilac", emoji: "🍓" },
+  { name: "Açaí com Ninho", category: "Açaí • 500ml", price: 22, color: "cream", emoji: "🥛" },
+  { name: "Açaí com Nutella", category: "Açaí • 500ml", price: 24, color: "peach", emoji: "🍫" },
+  { name: "Açaí na Tigela", category: "Açaí • 400ml", price: 16, color: "berry", emoji: "🥣" },
+  { name: "Suco Natural", category: "Bebidas • 300ml", price: 9, color: "green", emoji: "🥤" },
+];
+const navItems = [
+  { label: "Visão geral", icon: LayoutDashboard }, { label: "PDV", icon: ShoppingCart },
+  { label: "Vendas", icon: Banknote }, { label: "Produtos & estoque", icon: Boxes },
+  { label: "Clientes", icon: Users }, { label: "Financeiro", icon: Wallet },
+];
+const money = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-const Index = () => {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">Welcome to Your Blank App</h1>
-        <p className="text-xl text-gray-600">
-          Start building your amazing project here!
-        </p>
+export default function Index() {
+  const [active, setActive] = useState("Visão geral");
+  const [query, setQuery] = useState("");
+  const [cart, setCart] = useState<Record<string, number>>({});
+  const [paid, setPaid] = useState(false);
+  const [mobileMenu, setMobileMenu] = useState(false);
+  const [notice, setNotice] = useState("");
+  const cartCount = Object.values(cart).reduce((a, b) => a + b, 0);
+  const cartTotal = useMemo(() => products.reduce((sum, p) => sum + p.price * (cart[p.name] || 0), 0), [cart]);
+  const filtered = products.filter(p => `${p.name} ${p.category}`.toLowerCase().includes(query.toLowerCase()));
+  const add = (name: string) => { setPaid(false); setCart(c => ({ ...c, [name]: (c[name] || 0) + 1 })); };
+  const pay = () => { if (!cartCount) return; setPaid(true); setCart({}); setNotice("Venda concluída com sucesso!"); window.setTimeout(() => setNotice(""), 3200); };
+
+  return <div className="app-shell">
+    <aside className={`sidebar ${mobileMenu ? "sidebar-open" : ""}`}>
+      <div className="brand-lockup"><div className="brand-mark">a<span>ç</span></div><div><strong>AÇAÍ DO<br/>CHALALA</strong><small>Sistema de Gestão e Vendas</small></div><button className="mobile-close" onClick={() => setMobileMenu(false)} aria-label="Fechar menu"><X size={18}/></button></div>
+      <div className="store-select"><span className="store-dot"/><span><b>Loja principal</b><small>Caixa 01 · Aberto</small></span><ChevronDown size={16}/></div>
+      <p className="nav-caption">MENU PRINCIPAL</p>
+      <nav>{navItems.map(item => <button key={item.label} onClick={() => { setActive(item.label); setMobileMenu(false); }} className={`nav-item ${active === item.label ? "selected" : ""}`}><item.icon size={19}/><span>{item.label}</span>{item.label === "PDV" && <span className="live-dot"/>}</button>)}</nav>
+      <div className="sidebar-bottom"><div className="help-card"><div className="help-icon"><Coffee size={18}/></div><div><b>Precisa de ajuda?</b><span>Fale com a gente</span></div><a href="https://wa.me/553287026461" target="_blank" rel="noreferrer" aria-label="Fale pelo WhatsApp">↗</a></div><div className="user-row"><div className="avatar">MC</div><div><b>Mariana Costa</b><small>Administradora</small></div><button aria-label="Opções do perfil"><ChevronDown size={16}/></button></div></div>
+    </aside>
+    {mobileMenu && <button className="mobile-scrim" aria-label="Fechar menu" onClick={() => setMobileMenu(false)}/>}
+    <main className="main-area">
+      <header className="topbar"><div className="topbar-left"><button className="menu-trigger" onClick={() => setMobileMenu(true)} aria-label="Abrir menu"><Menu/></button><div className="crumb">Açaí do Chalala <span>/</span> <b>{active}</b></div></div><div className="top-actions"><div className="today"><CalendarDays size={16}/> <span>Quarta-feira, 18 de junho</span></div><button className="icon-button notification" aria-label="Notificações"><Bell size={19}/><i/></button><div className="top-user"><div className="avatar">MC</div><ChevronDown size={15}/></div></div></header>
+      <div className="page-content">
+        <div className="page-heading"><div><div className="eyebrow">QUARTA-FEIRA, 18 JUNHO 2025 <span className="status-pill"><i/> Loja aberta</span></div><h1>{active === "Visão geral" ? "Bom dia, Mariana" : active}</h1><p>{active === "Visão geral" ? "Aqui está o resumo da sua loja hoje." : `Acompanhe e gerencie ${active.toLowerCase()} da sua loja.`}</p></div><button className="primary-button" onClick={() => setActive("PDV")}><Plus size={17}/> Nova venda</button></div>
+        {active === "Visão geral" ? <>
+          <section className="stats-grid">
+            <article className="stat-card"><div className="stat-top"><span>Vendas de hoje</span><span className="stat-icon purple"><CircleDollarSign size={19}/></span></div><strong>R$ 1.284,50</strong><div className="stat-foot"><span className="trend"><ArrowUpRight size={14}/> 12,8%</span><span>vs. ontem</span></div><div className="sparkline purple-line"><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/></div></article>
+            <article className="stat-card"><div className="stat-top"><span>Pedidos realizados</span><span className="stat-icon green"><ShoppingBag size={18}/></span></div><strong>38 <small>pedidos</small></strong><div className="stat-foot"><span className="trend"><ArrowUpRight size={14}/> 8,2%</span><span>vs. ontem</span></div><div className="sparkline green-line"><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/></div></article>
+            <article className="stat-card"><div className="stat-top"><span>Ticket médio</span><span className="stat-icon lilac"><Activity size={18}/></span></div><strong>R$ 33,80</strong><div className="stat-foot"><span className="trend"><ArrowUpRight size={14}/> 4,5%</span><span>vs. ontem</span></div><div className="sparkline lilac-line"><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/></div></article>
+            <article className="stat-card"><div className="stat-top"><span>Produtos no estoque</span><span className="stat-icon orange"><Boxes size={18}/></span></div><strong>126 <small>itens</small></strong><div className="stat-foot"><span className="low-stock">3 produtos</span><span>com estoque baixo</span></div><div className="sparkline orange-line"><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/></div></article>
+          </section>
+          <section className="dashboard-grid"><article className="panel sales-panel"><div className="panel-heading"><div><h2>Visão de vendas</h2><p>Acompanhe o desempenho da sua loja</p></div><button className="select-button">Esta semana <ChevronDown size={15}/></button></div><div className="chart-summary"><strong>R$ 8.462,90</strong><span className="trend"><ArrowUpRight size={14}/> 16,4%</span><small>em relação à semana passada</small></div><div className="chart"><div className="y-labels"><span>R$ 2.000</span><span>R$ 1.500</span><span>R$ 1.000</span><span>R$ 500</span><span>R$ 0</span></div><div className="chart-area"><div className="chart-grid"><i/><i/><i/><i/><i/></div><svg viewBox="0 0 680 165" preserveAspectRatio="none" aria-label="Gráfico de vendas da semana"><defs><linearGradient id="fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#7b2da0" stopOpacity=".18"/><stop offset="1" stopColor="#7b2da0" stopOpacity="0"/></linearGradient></defs><path d="M0 135 C40 128 55 84 100 98 S160 120 195 78 S250 60 290 85 S345 40 390 52 S445 102 485 63 S540 79 580 31 S635 56 680 16 V165 H0Z" fill="url(#fill)"/><path d="M0 135 C40 128 55 84 100 98 S160 120 195 78 S250 60 290 85 S345 40 390 52 S445 102 485 63 S540 79 580 31 S635 56 680 16" fill="none" stroke="#74309a" strokeWidth="3" vectorEffect="non-scaling-stroke"/></svg><div className="x-labels"><span>Qui</span><span>Sex</span><span>Sáb</span><span>Dom</span><span>Seg</span><span>Ter</span><span>Qua</span></div></div></div></article>
+            <article className="panel quick-panel"><div className="panel-heading"><div><h2>Acesso rápido</h2><p>O que você deseja fazer?</p></div></div><div className="quick-actions"><button onClick={() => setActive("PDV")}><span className="quick-icon qi-purple"><ShoppingCart size={20}/></span><b>Nova venda</b><small>Iniciar atendimento</small><span className="quick-arrow">↗</span></button><button onClick={() => setActive("Produtos & estoque")}><span className="quick-icon qi-lilac"><Boxes size={20}/></span><b>Adicionar produto</b><small>Atualizar seu catálogo</small><span className="quick-arrow">↗</span></button><button onClick={() => setActive("Clientes")}><span className="quick-icon qi-green"><Users size={20}/></span><b>Novo cliente</b><small>Cadastrar consumidor</small><span className="quick-arrow">↗</span></button></div></article></section>
+          <section className="panel orders-panel"><div className="panel-heading"><div><h2>Vendas recentes</h2><p>As últimas movimentações da sua loja</p></div><button className="text-button" onClick={() => setActive("Vendas")}>Ver todas <span>→</span></button></div><div className="table-wrap"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Horário</th><th>Pagamento</th><th>Valor</th><th>Status</th></tr></thead><tbody><tr><td><b className="order-id">#CH-1048</b></td><td><span className="customer-dot">AB</span> Ana Beatriz</td><td>14:32</td><td><span className="payment-icon"><CreditCard size={14}/></span> Cartão</td><td className="amount">R$ 42,00</td><td><span className="order-status done"><i/> Concluída</span></td></tr><tr><td><b className="order-id">#CH-1047</b></td><td><span className="customer-dot peach-dot">RL</span> Rafael Lima</td><td>14:18</td><td><span className="payment-icon"><Banknote size={14}/></span> Dinheiro</td><td className="amount">R$ 28,50</td><td><span className="order-status done"><i/> Concluída</span></td></tr><tr><td><b className="order-id">#CH-1046</b></td><td><span className="customer-dot green-dot">CM</span> Camila Mendes</td><td>13:56</td><td><span className="payment-icon"><CreditCard size={14}/></span> Cartão</td><td className="amount">R$ 36,00</td><td><span className="order-status cancelled"><i/> Cancelada</span></td></tr></tbody></table></div></section>
+        </> : active === "PDV" ? <section className="pos-layout"><div className="panel catalog-panel"><div className="catalog-top"><div><h2>Monte seu pedido</h2><p>Selecione os produtos para adicionar à venda</p></div><span className="cash-chip"><span/> Caixa 01</span></div><div className="catalog-controls"><div className="search-field"><Search size={17}/><input placeholder="Buscar produto..." value={query} onChange={e => setQuery(e.target.value)}/><kbd>⌘ K</kbd></div><button className="filter-button">Todas as categorias <ChevronDown size={15}/></button></div><div className="category-row"><button className="category active-category">Todos <span>6</span></button><button className="category">Açaí <span>5</span></button><button className="category">Bebidas <span>1</span></button><button className="category">Adicionais <span>0</span></button></div><div className="product-grid">{filtered.map(p => <article className="product-card" key={p.name}><div className={`product-art art-${p.color}`}><span>{p.emoji}</span><button aria-label={`Adicionar ${p.name}`} onClick={() => add(p.name)}><Plus size={17}/></button></div><div className="product-info"><small>{p.category}</small><b>{p.name}</b><strong>{money(p.price)}</strong></div></article>)}</div></div><aside className="panel cart-panel"><div className="cart-header"><div><h2>Pedido atual</h2><p>Comanda #CH-1049</p></div><button className="clear-button" onClick={() => { setCart({}); setPaid(false); }}>Limpar</button></div><div className="customer-select"><span className="customer-add"><Users size={16}/></span><span><b>Cliente avulso</b><small>Selecionar cliente</small></span><ChevronDown size={16}/></div><div className="cart-items">{cartCount ? products.filter(p => cart[p.name]).map(p => <div className="cart-item" key={p.name}><span className={`mini-product art-${p.color}`}>{p.emoji}</span><div className="cart-item-info"><b>{p.name}</b><small>{money(p.price)} cada</small></div><div className="quantity-control"><button aria-label={`Remover ${p.name}`} onClick={() => setCart(c => { const next = {...c}; if (next[p.name] <= 1) delete next[p.name]; else next[p.name]--; return next; })}><Minus size={13}/></button><span>{cart[p.name]}</span><button aria-label={`Adicionar mais ${p.name}`} onClick={() => add(p.name)}><Plus size={13}/></button></div><b className="line-total">{money(p.price * cart[p.name])}</b></div>) : <div className="empty-cart"><div><ShoppingCart size={23}/></div><b>Seu pedido está vazio</b><span>Adicione produtos para começar</span></div>}</div><div className="cart-bottom"><button className="discount-button" onClick={() => setNotice("Desconto disponível no fechamento da venda.")}><Plus size={15}/> Adicionar desconto</button><div className="subtotal-line"><span>Subtotal</span><b>{money(cartTotal)}</b></div><div className="total-line"><b>Total</b><strong>{money(cartTotal)}</strong></div><button className="finish-button" disabled={!cartCount} onClick={pay}><Check size={18}/> Cobrar pedido <span>{money(cartTotal)}</span></button><div className="secure-note"><Clock3 size={13}/> Caixa aberto desde 08:02</div></div></aside></section> : <section className="panel coming-panel"><div className="coming-icon"><ActiveIcon active={active}/></div><h2>{active}</h2><p>Seu espaço de gestão está pronto para acompanhar a operação do AÇAÍ DO CHALALA.</p><div className="coming-stats"><span><b>{active === "Clientes" ? "248" : active === "Vendas" ? "38" : "126"}</b><small>{active === "Clientes" ? "clientes cadastrados" : active === "Vendas" ? "vendas hoje" : "itens cadastrados"}</small></span><button className="primary-button" onClick={() => setActive("PDV")}><Plus size={16}/> {active === "Vendas" ? "Nova venda" : active === "Clientes" ? "Adicionar cliente" : "Adicionar produto"}</button></div></section>}
+        <footer className="footer"><span><b>AÇAÍ DO CHALALA</b><i/> Sistema PDV</span><div><a href="https://wa.me/553287026461" target="_blank" rel="noreferrer">WhatsApp: (32) 9-8702-6461</a><a href="https://www.instagram.com/acai_do_chalala/" target="_blank" rel="noreferrer">Instagram: @acai_do_chalala</a></div></footer>
       </div>
-      <MadeWithDyad />
-    </div>
-  );
-};
-
-export default Index;
+    </main>
+    {notice && <div className={`toast-message ${notice.includes("sucesso") ? "success-toast" : ""}`}><Check size={17}/>{notice}<button onClick={() => setNotice("")} aria-label="Fechar"><X size={15}/></button></div>}
+    {paid && <div className="sale-receipt" role="status"><div className="receipt-logo">AÇAÍ DO CHALALA</div><b>Comprovante não fiscal</b><span>Venda #CH-1049 · 18/06/2025</span><strong>Venda concluída com sucesso</strong><button onClick={() => window.print()}><Printer size={15}/> Imprimir comprovante</button></div>}
+  </div>;
+}
+function ActiveIcon({ active }: { active: string }) { const Icon = active === "Clientes" ? Users : active === "Financeiro" ? Wallet : active === "Vendas" ? Banknote : Boxes; return <Icon size={27}/>; }
