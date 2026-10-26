@@ -1,27 +1,20 @@
 # Agente local de impressão — AÇAÍ DO CHALALA
 
-O agente Windows consulta a fila persistente do Supabase pela internet. O celular e os computadores enviam pedidos ao backend hospedado; o agente central os reserva atomicamente e imprime. Não é necessário que o celular esteja na mesma rede do computador.
+Celulares e computadores criam pedidos na fila persistente do Supabase. Somente o agente instalado no computador central reserva e imprime esses pedidos. A impressora não precisa estar acessível aos celulares.
 
 ## Requisitos
 
-- Windows 10/11 com conexão à internet.
-- Python 3.11 ou superior.
-- Para produção: driver da Bematech MP-2800 TH instalado no Windows e nome da impressora exatamente igual ao cadastrado no Windows.
-- Para teste: impressora física não é necessária.
+- Windows 10/11 com conexão à internet e Python 3.11 ou superior.
+- Para produção: driver da Bematech MP-2800 TH instalado e configurado no Windows. Use o nome exato mostrado em **Impressoras e scanners**. Ajuste o tamanho do papel para bobina térmica (80 mm ou o tamanho suportado) nas preferências do driver.
+- Para teste: não é necessária impressora física.
 
-## Provisionar credencial
+## Credencial do agente
 
-1. Entre no sistema com perfil administrador e abra **PDV**.
-2. Em **Impressão centralizada**, escolha **Gerar token**.
-3. Copie o token exibido naquele momento. Por segurança, o token integral não é armazenado e não poderá ser mostrado novamente.
-4. Para invalidar uma credencial, use **Revogar** na lista de agentes do painel e gere um novo token.
-5. Não envie esse token por mensagem pública nem o coloque em repositórios.
+No sistema, entre como administrador, abra **PDV → Impressão centralizada** e gere o token. O token é exibido somente uma vez. Não compartilhe nem publique `config.json`; o agente usa apenas o token individual da loja, nunca credenciais administrativas.
 
-O agente usa um token exclusivo da loja. A credencial administrativa/service-role nunca é enviada ao computador. O banco guarda somente o hash SHA-256 do token. A chave publishable incluída no agente é pública e não concede acesso administrativo.
+## Instalação inicial
 
-## Instalar em modo de teste
-
-Abra PowerShell na pasta `windows-agent` deste projeto e execute, substituindo o valor pelo token gerado no painel:
+Abra PowerShell na pasta `windows-agent`, substitua o token pelo valor gerado no painel e instale em modo de teste:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
@@ -29,22 +22,50 @@ Set-ExecutionPolicy -Scope Process Bypass
 & "C:\ImpressaoAcai\.venv\Scripts\python.exe" "C:\ImpressaoAcai\agent.py"
 ```
 
-O agente fica consultando a fila, sem abrir janelas. Cada trabalho recebido gera um arquivo `<id-do-trabalho>.pdf` em `C:\ImpressaoAcai\Testes` e atualiza o status para **Concluído**. Se a criação falhar, o status muda para **Erro**.
+Os trabalhos de teste são salvos em `C:\ImpressaoAcai\Testes` como PDF, sem imprimir papel.
 
-## Instalar em modo de produção
+## Produção: driver Windows (recomendado)
 
-Confirme primeiro o nome da impressora em **Configurações do Windows → Bluetooth e dispositivos → Impressoras e scanners**. Então instale e inicie o agente:
+Feche o agente que estiver aberto e instale/atualize com o nome exato da impressora:
 
 ```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\install-agent.ps1 -AgentToken "TOKEN_COPIADO_DO_PAINEL" -Mode production -PrinterName "Bematech MP-2800 TH"
+.\install-agent.ps1 -Mode production -PrintMethod windows -PrinterName "Driver - Impressora Bematech MP-2800 TH"
 & "C:\ImpressaoAcai\.venv\Scripts\python.exe" "C:\ImpressaoAcai\agent.py"
 ```
 
-O modo produção envia texto ESC/POS diretamente à fila RAW do driver selecionado. O status **Concluído** indica que o spooler Windows aceitou o trabalho; a confirmação física de papel impresso depende do driver e do dispositivo.
+Esse método cria um documento GDI do Windows e o envia ao driver selecionado; não envia ESC/POS RAW. O driver aplica as configurações de papel, fonte e margens, e os textos do cupom são centralizados. Confirme que a largura de bobina está definida nas preferências de impressão do Windows.
 
-## Configuração local
+## Método RAW/ESC-POS
 
-O instalador cria `C:\ImpressaoAcai\config.json` com o token, o modo e o nome da impressora. O modo é `test` ou `production`; o padrão do instalador é `test`. Proteja o acesso ao computador e não compartilhe esse arquivo. Para trocar o modo, execute novamente o instalador com o mesmo token e modo desejado.
+Para selecionar explicitamente o método antigo:
 
-Para encerrar o agente, pressione `Ctrl+C`. Para iniciar automaticamente após reinicialização, configure uma tarefa no Agendador de Tarefas do Windows com o executável `C:\ImpressaoAcai\.venv\Scripts\python.exe`, argumento `C:\ImpressaoAcai\agent.py` e diretório de início `C:\ImpressaoAcai`.
+```powershell
+.\install-agent.ps1 -Mode production -PrintMethod raw -PrinterName "Driver - Impressora Bematech MP-2800 TH"
+& "C:\ImpressaoAcai\.venv\Scripts\python.exe" "C:\ImpressaoAcai\agent.py"
+```
+
+Use-o apenas se a impressora/porta aceitar esse protocolo. O método padrão é `windows`.
+
+## Atualizar instalação existente sem perder o token
+
+1. Pare o agente aberto com `Ctrl+C`.
+2. Abra PowerShell na nova pasta `windows-agent` do projeto. O instalador lê o token de `C:\ImpressaoAcai\config.json` se `-AgentToken` for omitido, mantendo-o durante a atualização.
+3. Execute:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\install-agent.ps1 -Mode production -PrintMethod windows -PrinterName "Driver - Impressora Bematech MP-2800 TH"
+& "C:\ImpressaoAcai\.venv\Scripts\python.exe" "C:\ImpressaoAcai\agent.py"
+```
+
+O instalador substitui os arquivos do agente e atualiza as dependências, sem apagar `config.json` nem a pasta de PDFs. Se a configuração existente não puder ser lida, ele interrompe em vez de sobrescrevê-la. Como precaução, pode-se copiar `C:\ImpressaoAcai\config.json` antes de atualizar.
+
+## Verificar o resultado
+
+Envie um pedido de teste pelo painel de impressão centralizada e confirme que aparece na fila do computador central. Depois teste um pedido real e confira no spooler do Windows se o documento foi aceito e impresso. Trabalhos concluídos indicam que a chamada de impressão do Windows terminou sem erro; o spooler/driver pode ainda reportar falhas físicas após aceitar um trabalho. Falhas retornadas pela chamada de impressão são registradas como **Erro**, não como **Concluído**.
+
+Para encerrar o agente, use `Ctrl+C`. Para iniciar automaticamente após reinicialização, configure uma tarefa no Agendador de Tarefas com executável `C:\ImpressaoAcai\.venv\Scripts\python.exe`, argumento `C:\ImpressaoAcai\agent.py` e diretório inicial `C:\ImpressaoAcai`.
+
+## Configuração
+
+`C:\ImpressaoAcai\config.json` contém `agent_token`, `mode` (`test` ou `production`), `printer_name` e `print_method` (`windows` ou `raw`). Proteja esse arquivo e o acesso ao computador central. Somente esse agente deve permanecer ativo como impressor central da loja.
