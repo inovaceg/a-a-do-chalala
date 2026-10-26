@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, MapPin, UserRound, UserRoundX, X } from "lucide-react";
+import { Check, MapPin, Search, UserRound, UserRoundX, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import "./coupon-start-dialog.css";
 
@@ -7,6 +7,7 @@ export type CouponCustomer = { id: string; name: string; whatsapp: string; stree
 export type CouponSelection = { customer: CouponCustomer | null; delivery: boolean; deliveryAddress: string };
 type CustomerFields = Omit<CouponCustomer, "id">;
 type Props = { open: boolean; onCancel: () => void; onConfirm: (selection: CouponSelection) => void };
+const customerColumns = "id,name,whatsapp,street,address_number,neighborhood,city,address_complement,postal_code";
 const emptyFields: CustomerFields = { name: "", whatsapp: "", street: "", address_number: "", neighborhood: "", city: "", address_complement: "", postal_code: "" };
 const addressFields: { key: keyof CustomerFields; label: string; placeholder: string }[] = [
   { key: "street", label: "Rua", placeholder: "Rua" },
@@ -22,6 +23,8 @@ export default function CouponStartDialog({ open, onCancel, onConfirm }: Props) 
   const [anonymous, setAnonymous] = useState(false);
   const [delivery, setDelivery] = useState(false);
   const [fields, setFields] = useState<CustomerFields>(emptyFields);
+  const [matches, setMatches] = useState<CouponCustomer[]>([]);
+  const [selectedCustomer, setSelectedCustomer] = useState<CouponCustomer | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -30,13 +33,41 @@ export default function CouponStartDialog({ open, onCancel, onConfirm }: Props) 
       setAnonymous(false);
       setDelivery(false);
       setFields(emptyFields);
+      setMatches([]);
+      setSelectedCustomer(null);
       setError("");
     }
   }, [open]);
 
+  useEffect(() => {
+    const term = fields.whatsapp.trim();
+    if (!open || anonymous || term.length < 3 || selectedCustomer?.whatsapp === term) {
+      setMatches([]);
+      return;
+    }
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      const { data } = await supabase.from("customers").select(customerColumns).ilike("whatsapp", `%${term}%`).order("name").limit(6);
+      if (active) setMatches((data ?? []) as CouponCustomer[]);
+    }, 250);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [fields.whatsapp, open, anonymous, selectedCustomer]);
+
   if (!open) return null;
 
-  const updateField = (key: keyof CustomerFields, value: string) => setFields(current => ({ ...current, [key]: key === "whatsapp" || key === "postal_code" ? value : value.toLocaleUpperCase("pt-BR") }));
+  const updateField = (key: keyof CustomerFields, value: string) => {
+    setFields(current => ({ ...current, [key]: key === "whatsapp" || key === "postal_code" ? value : value.toLocaleUpperCase("pt-BR") }));
+    if (key === "whatsapp") setSelectedCustomer(null);
+  };
+
+  const chooseCustomer = (customer: CouponCustomer) => {
+    setSelectedCustomer(customer);
+    setFields({ name: customer.name, whatsapp: customer.whatsapp, street: customer.street ?? "", address_number: customer.address_number ?? "", neighborhood: customer.neighborhood ?? "", city: customer.city ?? "", address_complement: customer.address_complement ?? "", postal_code: customer.postal_code ?? "" });
+    setMatches([]);
+  };
 
   const start = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -53,7 +84,20 @@ export default function CouponStartDialog({ open, onCancel, onConfirm }: Props) 
     }
     const optional = Object.fromEntries(addressFields.map(field => [field.key, fields[field.key]?.trim() || null])) as Pick<CustomerFields, "street" | "address_number" | "neighborhood" | "city" | "address_complement" | "postal_code">;
     setSaving(true);
-    const { data: existing, error: lookupError } = await supabase.from("customers").select("id,name,whatsapp,street,address_number,neighborhood,city,address_complement,postal_code").eq("whatsapp", whatsapp).limit(1).maybeSingle();
+    if (selectedCustomer && selectedCustomer.whatsapp === whatsapp) {
+      const updates = Object.fromEntries(Object.entries(optional).filter(([, value]) => value !== null));
+      const { data, error: updateError } = await supabase.from("customers").update({ name, whatsapp, ...updates }).eq("id", selectedCustomer.id).select(customerColumns).single();
+      if (updateError || !data) {
+        setSaving(false);
+        setError("Não foi possível atualizar o cadastro do cliente.");
+        return;
+      }
+      const customer = data as CouponCustomer;
+      setSaving(false);
+      onConfirm({ customer, delivery, deliveryAddress: delivery ? [customer.street, customer.address_number, customer.address_complement, customer.neighborhood, customer.city, customer.postal_code ? `CEP ${customer.postal_code}` : ""].filter(Boolean).join(", ") || fullAddress(fields) : "" });
+      return;
+    }
+    const { data: existing, error: lookupError } = await supabase.from("customers").select(customerColumns).eq("whatsapp", whatsapp).limit(1).maybeSingle();
     if (lookupError) {
       setSaving(false);
       setError("Não foi possível verificar o cadastro do cliente.");
@@ -61,8 +105,7 @@ export default function CouponStartDialog({ open, onCancel, onConfirm }: Props) 
     }
     let customer: CouponCustomer | null = null;
     if (existing) {
-      const updates = Object.fromEntries(Object.entries(optional).filter(([, value]) => value !== null));
-      const { data, error: updateError } = await supabase.from("customers").update({ name, whatsapp, ...updates }).eq("id", existing.id).select("id,name,whatsapp,street,address_number,neighborhood,city,address_complement,postal_code").single();
+      const { data, error: updateError } = await supabase.from("customers").update({ name, whatsapp, ...Object.fromEntries(Object.entries(optional).filter(([, value]) => value !== null)) }).eq("id", existing.id).select(customerColumns).single();
       if (updateError || !data) {
         setSaving(false);
         setError("Não foi possível atualizar o cadastro do cliente.");
@@ -70,7 +113,7 @@ export default function CouponStartDialog({ open, onCancel, onConfirm }: Props) 
       }
       customer = data as CouponCustomer;
     } else {
-      const { data, error: createError } = await supabase.from("customers").insert({ name, whatsapp, ...optional }).select("id,name,whatsapp,street,address_number,neighborhood,city,address_complement,postal_code").single();
+      const { data, error: createError } = await supabase.from("customers").insert({ name, whatsapp, ...optional }).select(customerColumns).single();
       if (createError || !data) {
         setSaving(false);
         setError("Não foi possível salvar o cliente para este cupom.");
@@ -83,5 +126,5 @@ export default function CouponStartDialog({ open, onCancel, onConfirm }: Props) 
     onConfirm({ customer, delivery, deliveryAddress: delivery ? savedAddress || fullAddress(fields) : "" });
   };
 
-  return <div className="coupon-start-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !saving) onCancel(); }}><form className="coupon-start-dialog" onSubmit={start} role="dialog" aria-modal="true" aria-labelledby="coupon-start-title"><button type="button" className="coupon-start-close" onClick={onCancel} aria-label="Fechar" disabled={saving}><X size={18}/></button><span className="coupon-start-kicker">NOVO PEDIDO</span><h2 id="coupon-start-title">Identificação do cupom</h2><p>Preencha os dados do cliente ou escolha continuar sem identificação.</p><div className="coupon-start-options"><label className={`coupon-option ${!anonymous ? "coupon-option-active" : ""}`}><input type="radio" name="coupon-identity" checked={!anonymous} onChange={() => setAnonymous(false)}/><UserRound size={17}/><span>Identificar cliente</span></label><label className={`coupon-option ${anonymous ? "coupon-option-active" : ""}`}><input type="radio" name="coupon-identity" checked={anonymous} onChange={() => setAnonymous(true)}/><UserRoundX size={17}/><span>Cupom sem identificação</span></label></div>{!anonymous && <div className="coupon-customer-fields"><label>Nome do cliente <i>Obrigatório</i><input autoFocus required maxLength={160} value={fields.name} onChange={event => updateField("name", event.target.value)} placeholder="NOME COMPLETO"/></label><label>WhatsApp <i>Obrigatório</i><input type="tel" required maxLength={30} value={fields.whatsapp} onChange={event => updateField("whatsapp", event.target.value)} placeholder="(32) 99999-9999"/></label></div>}<label className="coupon-delivery-toggle"><input type="checkbox" checked={delivery} onChange={event => setDelivery(event.target.checked)}/><span className="coupon-delivery-icon"><MapPin size={17}/></span><span><b>Este pedido é delivery</b><small>Será contado no relatório diário de entregas.</small></span></label><section className="coupon-address-section"><header><MapPin size={15}/><b>Endereço para entrega</b><small>Opcional</small></header><div className="coupon-address-fields">{addressFields.map(field => <label className={field.key === "address_complement" ? "coupon-address-wide" : ""} key={field.key}>{field.label}<input maxLength={field.key === "postal_code" ? 12 : 160} value={fields[field.key] ?? ""} onChange={event => updateField(field.key, event.target.value)} placeholder={field.placeholder}/></label>)}</div></section>{error && <p className="coupon-start-error" role="alert">{error}</p>}<footer><button type="button" className="coupon-start-cancel" onClick={onCancel} disabled={saving}>Cancelar</button><button className="coupon-start-confirm" disabled={saving}><Check size={16}/>{saving ? "Salvando cliente…" : "Abrir cupom"}</button></footer></form></div>;
+  return <div className="coupon-start-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !saving) onCancel(); }}><form className="coupon-start-dialog" onSubmit={start} role="dialog" aria-modal="true" aria-labelledby="coupon-start-title"><button type="button" className="coupon-start-close" onClick={onCancel} aria-label="Fechar" disabled={saving}><X size={18}/></button><span className="coupon-start-kicker">NOVO PEDIDO</span><h2 id="coupon-start-title">Identificação do cupom</h2><p>Preencha os dados do cliente ou escolha continuar sem identificação.</p><div className="coupon-start-options"><label className={`coupon-option ${!anonymous ? "coupon-option-active" : ""}`}><input type="radio" name="coupon-identity" checked={!anonymous} onChange={() => setAnonymous(false)}/><UserRound size={17}/><span>Identificar cliente</span></label><label className={`coupon-option ${anonymous ? "coupon-option-active" : ""}`}><input type="radio" name="coupon-identity" checked={anonymous} onChange={() => setAnonymous(true)}/><UserRoundX size={17}/><span>Cupom sem identificação</span></label></div>{!anonymous && <div className="coupon-customer-fields"><label>Nome do cliente <i>Obrigatório</i><input autoFocus required maxLength={160} value={fields.name} onChange={event => updateField("name", event.target.value)} placeholder="NOME COMPLETO"/></label><div className="coupon-whatsapp-search"><label>WhatsApp <i>Obrigatório · digite para localizar</i><input type="tel" required maxLength={30} value={fields.whatsapp} onChange={event => updateField("whatsapp", event.target.value)} placeholder="(32) 99999-9999"/></label>{matches.length > 0 && <div className="coupon-customer-matches" role="listbox" aria-label="Clientes encontrados">{matches.map(customer => <button type="button" key={customer.id} onClick={() => chooseCustomer(customer)}><Search size={13}/><span><b>{customer.name}</b><small>{customer.whatsapp}</small></span></button>)}</div>}</div></div>}<label className="coupon-delivery-toggle"><input type="checkbox" checked={delivery} onChange={event => setDelivery(event.target.checked)}/><span className="coupon-delivery-icon"><MapPin size={17}/></span><span><b>Este pedido é delivery</b><small>Será contado no relatório diário de entregas.</small></span></label><section className="coupon-address-section"><header><MapPin size={15}/><b>Endereço para entrega</b><small>Opcional</small></header><div className="coupon-address-fields">{addressFields.map(field => <label className={field.key === "address_complement" ? "coupon-address-wide" : ""} key={field.key}>{field.label}<input maxLength={field.key === "postal_code" ? 12 : 160} value={fields[field.key] ?? ""} onChange={event => updateField(field.key, event.target.value)} placeholder={field.placeholder}/></label>)}</div></section>{error && <p className="coupon-start-error" role="alert">{error}</p>}<footer><button type="button" className="coupon-start-cancel" onClick={onCancel} disabled={saving}>Cancelar</button><button className="coupon-start-confirm" disabled={saving}><Check size={16}/>{saving ? "Salvando cliente…" : "Abrir cupom"}</button></footer></form></div>;
 }

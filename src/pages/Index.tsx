@@ -10,6 +10,7 @@ import { Activity, ArrowUpRight, Banknote, Bell, Boxes, CalendarDays, Check, Che
 import "./pos-keyboard.css";
 import "./product-edit.css";
 import "./combo-editor.css";
+import "./coupon-receipt.css";
 
 type Extra = { id?: string; name: string; price: number; is_active?: boolean };
 type ComboComponent = { id: string; name: string; type: "product"; quantity: number };
