@@ -11,7 +11,7 @@ import "./combo-editor.css";
 
 type Extra = { id?: string; name: string; price: number; is_active?: boolean };
 type ComboComponent = { id: string; name: string; type: "product"; quantity: number };
-type Product = { id?: string; name: string; category: string; price: number; color: string; emoji: string; kind?: "combo" | "product"; extras?: Extra[]; combo_items?: ComboComponent[] };
+type Product = { id?: string; name: string; category: string; price: number; color: string; emoji: string; kind?: "combo" | "product"; extras?: Extra[]; combo_items?: ComboComponent[]; is_active?: boolean };
 type CartItem = { id: number; product: Product; extras: Extra[] };
 type PaymentMethod = "Dinheiro" | "Cartão de débito" | "Cartão de crédito" | "Pix" | "Vale alimentação" | "Crediário";
 type PaymentLine = { method: PaymentMethod; amount: number };
@@ -54,8 +54,10 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   const [checkoutSaving, setCheckoutSaving] = useState(false);
   useEffect(() => {
     let mounted = true;
+    const catalogQuery = supabase.from("products").select("id,name,category,price,color,emoji,kind,extras,combo_items,is_active");
+    if (role !== "admin") catalogQuery.eq("is_active", true);
     Promise.all([
-      supabase.from("products").select("id,name,category,price,color,emoji,kind,extras,combo_items").eq("is_active", true),
+      catalogQuery,
       supabase.rpc("open_cash_session"),
       supabase.from("extras").select("id,name,price,is_active").eq("is_active", true).order("name"),
     ]).then(([catalog, session, availableExtras]) => {
@@ -82,7 +84,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     const heading = document.createElement("b");
     heading.textContent = "Itens incluídos no combo";
     const help = document.createElement("small");
-    const componentOptions = catalogProducts.filter(product => product.id && product.kind !== "combo" && product.id !== editingProduct?.id);
+    const componentOptions = catalogProducts.filter(product => product.id && product.is_active !== false && product.kind !== "combo" && product.id !== editingProduct?.id);
     help.textContent = componentOptions.length
       ? "O preço informado é o valor final do combo. Escolha itens cadastrados no catálogo de produtos."
       : "Cadastre primeiro os produtos que farão parte do combo.";
@@ -104,7 +106,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     modal.insertBefore(editor, modal.querySelector(".modal-actions"));
   }, [dialog, formCombo, catalogProducts, editingProduct]);
   const cartTotal = useMemo(() => cart.reduce((sum, item) => sum + item.product.price + item.extras.reduce((n, extra) => n + extra.price, 0), 0), [cart]);
-  const filtered = products.filter(p => `${p.name} ${p.category}`.toLowerCase().includes(query.toLowerCase()));
+  const filtered = products.filter(p => p.is_active !== false && `${p.name} ${p.category}`.toLowerCase().includes(query.toLowerCase()));
   const saveProducts = (next: Product[]) => { setProducts(next); setCatalogProducts(next); localStorage.setItem("chalala-products", JSON.stringify(next)); };
   const add = (product: Product, picked: Extra[] = []) => { setCart(c => [...c, { id: Date.now() + Math.random(), product, extras: picked }]); };
   const availableExtras = () => extras;
@@ -217,12 +219,42 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   const totalOf = (item: CartItem) => item.product.price + item.extras.reduce((sum, e) => sum + e.price, 0);
   const openForm = (type: "product" | "extra", product?: Product) => { setEditingProduct(product ?? null); setFormName(product?.name ?? ""); setFormPrice(product ? String(product.price) : ""); setFormCategory(product?.category.split(" • ")[0] ?? "Açaí"); setFormCombo(product?.kind === "combo" || Boolean(product?.category.includes("Combo"))); setFormExtras(product?.extras?.map(extra => extra.name) ?? []); setDialog(type); };
   useEffect(() => {
-    const handleProductRow = (event: MouseEvent) => {
+    if (role !== "admin" || active !== "Produtos & estoque") return;
+    const rows = Array.from(document.querySelectorAll<HTMLElement>(".catalog-list-row"));
+    rows.forEach((row, index) => {
+      const product = products[index];
+      if (!product?.id) return;
+      let button = row.querySelector<HTMLButtonElement>(".product-status-toggle");
+      if (!button) {
+        button = document.createElement("button");
+        button.type = "button";
+        button.className = "product-status-toggle";
+        row.append(button);
+      }
+      button.textContent = product.is_active === false ? "Reativar" : "Inativar";
+      button.setAttribute("aria-label", `${product.is_active === false ? "Reativar" : "Inativar"} ${product.name}`);
+    });
+    const handleProductRow = async (event: MouseEvent) => {
       if (role !== "admin" || active !== "Produtos & estoque") return;
-      const row = (event.target as HTMLElement).closest(".catalog-list-row");
+      const target = event.target as HTMLElement;
+      const row = target.closest<HTMLElement>(".catalog-list-row");
       if (!row) return;
-      const product = products.find(item => item.name === row.querySelector("b")?.textContent);
-      if (product) openForm("product", product);
+      const rowIndex = rows.indexOf(row);
+      const product = products[rowIndex];
+      if (!product?.id) return;
+      if (target.closest(".product-status-toggle")) {
+        event.stopPropagation();
+        const nextActive = product.is_active === false;
+        const { error } = await supabase.rpc("set_product_active", { p_product_id: product.id, p_is_active: nextActive });
+        if (error) { setNotice("Não foi possível alterar a situação do produto."); return; }
+        const update = (items: Product[]) => items.map(item => item.id === product.id ? { ...item, is_active: nextActive } : item);
+        setProducts(update);
+        setCatalogProducts(update);
+        setNotice(nextActive ? "Produto reativado e disponível no PDV." : "Produto inativado e removido do PDV.");
+        window.setTimeout(() => setNotice(""), 3000);
+        return;
+      }
+      openForm("product", product);
     };
     document.addEventListener("click", handleProductRow);
     return () => document.removeEventListener("click", handleProductRow);
