@@ -304,50 +304,97 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   };
   const generateReceiptPdf = () => {
     if (!closedSale) return;
-    const sequence = closedSale.id.match(/\d+$/)?.[0] ?? closedSale.id;
-    const shortOrderNumber = sequence.slice(-6).padStart(6, "0");
-    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: [80, 400] });
-    const rows: { text: string; size: number; bold?: boolean; align?: "left" | "center" | "right" }[] = [
-      { text: "AÇAÍ DO CHALALA", size: 15, bold: true, align: "center" },
-      { text: "O sabor que conquista!", size: 9, align: "center" },
-      { text: "Endereço: R. Luís Marchini, 228 - São Benedito, Juiz de Fora - MG, 36061-270", size: 8, align: "center" },
-      { text: "--------------------------------", size: 8, align: "center" },
-      { text: "COMPROVANTE DE PEDIDO", size: 10, bold: true, align: "center" },
-      { text: "--------------------------------", size: 8, align: "center" },
-      { text: `PEDIDO Nº ${shortOrderNumber}`, size: 13, bold: true, align: "center" },
-      { text: `DATA: ${new Date().toLocaleString("pt-BR")}`, size: 8 },
-      { text: `OPERADOR: ${displayName || email.split("@")[0] || "Operador"}`, size: 8 },
-      { text: `TIPO: ${closedSale.delivery ? "DELIVERY" : "NÃO DELIVERY"}`, size: 9, bold: true },
+    const shortOrderNumber = (closedSale.id.match(/\d+$/)?.[0] ?? closedSale.id).slice(-6).padStart(6, "0");
+    const soldAt = new Date();
+    const rows: { kind: "text" | "divider" | "highlight" | "section" | "product" | "total"; text?: string; quantity?: string; description?: string; value?: string; size?: number; bold?: boolean; italic?: boolean; align?: "left" | "center" | "right" }[] = [
+      { kind: "text", text: "AÇAÍ DO CHALALA", align: "center", size: 22, bold: true },
+      { kind: "text", text: "O sabor que conquista!", align: "center", size: 10, italic: true },
+      { kind: "text", text: "R. Luís Marchini, 228", align: "center", size: 9 },
+      { kind: "text", text: "São Benedito - Juiz de Fora/MG", align: "center", size: 9 },
+      { kind: "text", text: "CEP 36061-270", align: "center", size: 9 },
+      { kind: "divider" },
+      { kind: "text", text: "COMPROVANTE DE PEDIDO", align: "center", size: 11, bold: true },
+      { kind: "divider" },
+      { kind: "highlight", text: `PEDIDO Nº ${shortOrderNumber}`, align: "center", size: 18, bold: true },
+      { kind: "text", text: `DATA/HORA: ${soldAt.toLocaleString("pt-BR")}`, size: 8 },
+      { kind: "text", text: `OPERADOR: ${displayName || email.split("@")[0] || "Caixa central"}`, size: 8 },
+      { kind: "highlight", text: `TIPO: ${closedSale.delivery ? "DELIVERY" : "BALCÃO"}`, align: "center", size: 12, bold: true },
     ];
-    if (closedSale.customer) rows.push({ text: `CLIENTE: ${closedSale.customer.name} · ${closedSale.customer.whatsapp}`, size: 8 });
-    const customerAddress = closedSale.delivery && closedSale.deliveryAddress ? closedSale.deliveryAddress : closedSale.customer ? [closedSale.customer.street, closedSale.customer.address_number, closedSale.customer.address_complement, closedSale.customer.neighborhood, closedSale.customer.city, closedSale.customer.postal_code ? `CEP ${closedSale.customer.postal_code}` : ""].filter(Boolean).join(", ") : "";
-    if (customerAddress) rows.push({ text: `ENDEREÇO DO CLIENTE: ${customerAddress}`, size: 8 });
-    if (closedSale.courier) rows.push({ text: `ENTREGADOR: ${closedSale.courier.name}`, size: 8 });
-    rows.push({ text: "--------------------------------", size: 8, align: "center" });
-    for (const item of closedSale.items) {
-      rows.push({ text: `1 x ${item.product.name}  ${money(totalOf(item))}`, size: 9, bold: true });
-      for (const extra of item.extras) rows.push({ text: `  + ${extra.name} (${money(extra.price)})`, size: 8 });
+    if (closedSale.delivery || closedSale.customer) {
+      rows.push({ kind: "divider" }, { kind: "section", text: closedSale.delivery ? "DADOS DA ENTREGA" : "DADOS DO CLIENTE", size: 10, bold: true });
+      if (closedSale.customer) {
+        rows.push({ kind: "text", text: `CLIENTE: ${closedSale.customer.name}`, size: 8 });
+        if (closedSale.customer.whatsapp) rows.push({ kind: "text", text: `TELEFONE: ${closedSale.customer.whatsapp}`, size: 8 });
+      }
+      if (closedSale.delivery) {
+        const structuredAddress = closedSale.customer ? [closedSale.customer.street, closedSale.customer.address_number, closedSale.customer.neighborhood, closedSale.customer.city, closedSale.customer.postal_code ? `CEP ${closedSale.customer.postal_code}` : ""].filter(Boolean).join(", ") : "";
+        const address = structuredAddress || closedSale.deliveryAddress;
+        if (address) rows.push({ kind: "text", text: `ENDEREÇO: ${address}`, size: 8 });
+        if (closedSale.customer?.address_complement) rows.push({ kind: "text", text: `COMPLEMENTO: ${closedSale.customer.address_complement}`, size: 8 });
+        if (closedSale.courier) rows.push({ kind: "text", text: `ENTREGADOR: ${closedSale.courier.name}${closedSale.courier.whatsapp ? ` · ${closedSale.courier.whatsapp}` : ""}`, size: 8 });
+      }
     }
-    rows.push({ text: "--------------------------------", size: 8, align: "center" });
-    for (const paymentLine of closedSale.payments) rows.push({ text: `PAGAMENTO: ${paymentLine.method}  ${money(paymentLine.amount)}`, size: 8 });
-    if (closedSale.discount > 0) rows.push({ text: `DESCONTO: ${money(closedSale.discount)}`, size: 8 });
-    if (closedSale.change > 0) rows.push({ text: `TROCO: ${money(closedSale.change)}`, size: 8 });
-    rows.push({ text: `TOTAL  ${money(closedSale.total)}`, size: 12, bold: true, align: "right" });
-    rows.push({ text: "--------------------------------", size: 8, align: "center" }, { text: "Obrigado pela preferência!", size: 9, bold: true, align: "center" }, { text: "Volte sempre ao Açaí do Chalala!", size: 8, align: "center" });
+    rows.push({ kind: "divider" }, { kind: "section", text: "ITENS DO PEDIDO", size: 10, bold: true });
+    for (const item of closedSale.items) {
+      rows.push({ kind: "product", quantity: "1x", description: item.product.name, value: money(totalOf(item)), size: 9, bold: true });
+      for (const extra of item.extras) rows.push({ kind: "text", text: `  + ${extra.name} (${money(extra.price)})`, size: 8 });
+    }
+    rows.push({ kind: "divider" }, { kind: "text", text: `SUBTOTAL: ${money(closedSale.total + closedSale.discount)}`, size: 8 });
+    if (closedSale.discount > 0) rows.push({ kind: "text", text: `DESCONTO: -${money(closedSale.discount)}`, size: 8 });
+    for (const payment of closedSale.payments) rows.push({ kind: "text", text: `PAGAMENTO: ${payment.method}  ${money(payment.amount)}`, size: 8 });
+    if (closedSale.change > 0) rows.push({ kind: "text", text: `TROCO: ${money(closedSale.change)}`, size: 8 });
+    rows.push({ kind: "total", text: `TOTAL  ${money(closedSale.total)}`, align: "right", size: 16, bold: true }, { kind: "divider" }, { kind: "text", text: "OBRIGADO PELA PREFERÊNCIA!", align: "center", size: 9, bold: true }, { kind: "text", text: "AÇAÍ DO CHALALA", align: "center", size: 9, bold: true }, { kind: "text", text: "VOLTE SEMPRE!", align: "center", size: 8 });
 
-    const rendered = rows.flatMap(row => {
-      doc.setFont("helvetica", row.bold ? "bold" : "normal");
-      doc.setFontSize(row.size);
-      return doc.splitTextToSize(row.text, 74).map(text => ({ ...row, text }));
+    const width = 80;
+    const margin = 3;
+    const contentWidth = width - margin * 2;
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: [width, 500] });
+    type RenderedRow = (typeof rows)[number] & { lines: string[]; leading: number };
+    const rendered: RenderedRow[] = rows.map(row => {
+      const kind = row.kind;
+      const font = row.bold || ["product", "section", "highlight", "total"].includes(kind) ? "bold" : row.italic ? "italic" : "normal";
+      const size = kind === "divider" ? 7 : row.size ?? 8;
+      doc.setFont("helvetica", font);
+      doc.setFontSize(size);
+      const text = row.text ?? "";
+      const lines = kind === "product"
+        ? doc.splitTextToSize(row.description ?? "", Math.max(10, contentWidth - doc.getTextWidth(row.value ?? "") - 16)) as string[]
+        : kind === "divider" ? [""] : doc.splitTextToSize(text, contentWidth - (["highlight", "total"].includes(kind) ? 4 : 0)) as string[];
+      return { ...row, size, lines, leading: size * 1.3 * 0.3528 + 1 };
     });
-    const pageHeight = rendered.reduce((height, row) => height + row.size * 0.48 + 2, 10);
-    doc.internal.pageSize.setHeight(pageHeight);
+    const gap = 1.5;
+    const height = 10 + rendered.reduce((sum, row) => sum + (row.kind === "highlight" || row.kind === "total" ? row.lines.length * row.leading + 2 : Math.max(1, row.lines.length) * row.leading) + gap, 0);
+    doc.internal.pageSize.setHeight(height);
     let y = 5;
     for (const row of rendered) {
-      doc.setFont("helvetica", row.bold ? "bold" : "normal");
-      doc.setFontSize(row.size);
-      doc.text(row.text, row.align === "center" ? 40 : row.align === "right" ? 77 : 3, y, { align: row.align ?? "left" });
-      y += row.size * 0.48 + 2;
+      const kind = row.kind;
+      const size = row.size ?? 8;
+      const font = row.bold || ["product", "section", "highlight", "total"].includes(kind) ? "bold" : row.italic ? "italic" : "normal";
+      doc.setFont("helvetica", font);
+      doc.setFontSize(size);
+      if (kind === "divider") {
+        doc.setLineWidth(0.15);
+        for (let x = margin; x < width - margin; x += 2) doc.line(x, y + 1, Math.min(x + 1, width - margin), y + 1);
+        y += row.leading + gap;
+      } else if (kind === "highlight" || kind === "total") {
+        const blockHeight = row.lines.length * row.leading + 2;
+        doc.roundedRect(margin, y, contentWidth, blockHeight, 1, 1, "S");
+        row.lines.forEach((line, index) => doc.text(line, width / 2, y + 1 + size * 0.3528 + index * row.leading, { align: "center" }));
+        y += blockHeight + gap;
+      } else if (kind === "section") {
+        doc.text(row.lines[0] ?? "", margin, y + size * 0.3528);
+        y += row.leading;
+        doc.line(margin, y, width - margin, y);
+        y += gap;
+      } else if (kind === "product") {
+        doc.text(row.quantity ?? "1x", margin, y + size * 0.3528);
+        doc.text(row.value ?? "", width - margin, y + size * 0.3528, { align: "right" });
+        row.lines.forEach((line, index) => doc.text(line, margin + 9, y + size * 0.3528 + index * row.leading));
+        y += Math.max(1, row.lines.length) * row.leading + gap;
+      } else {
+        row.lines.forEach((line, index) => doc.text(line, row.align === "center" ? width / 2 : row.align === "right" ? width - margin : margin, y + size * 0.3528 + index * row.leading, { align: row.align ?? "left" }));
+        y += row.lines.length * row.leading + gap;
+      }
     }
     const url = URL.createObjectURL(doc.output("blob"));
     const pdfWindow = window.open(url, "_blank");

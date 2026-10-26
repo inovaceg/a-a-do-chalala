@@ -116,7 +116,7 @@ def receipt_rows(job):
     products = receipt.get("products", [])
     if products:
         for product in products:
-            rows.append({"kind": "product", "quantity": f"{product.get('quantity', 1)}x", "description": str(product.get("name", "Produto")), "value": format_money(product.get("line_total", product.get("unit_price", 0))), "size": 9})
+            rows.append({"kind": "product", "quantity": f"{product.get('quantity', 1)}x", "description": str(product.get("name", "Produto")), "value": format_money(product.get("line_total", product.get("unit_price", 0))), "size": 9, "bold": True})
             for extra in product.get("extras", []):
                 extra_text = f"  + {extra.get('name', '')}"
                 if extra.get("price") is not None:
