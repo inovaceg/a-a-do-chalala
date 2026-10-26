@@ -3,6 +3,8 @@ import { Banknote, CalendarDays, Check, Clock3, CreditCard, Plus, RefreshCw, Sea
 import { supabase } from "@/integrations/supabase/client";
 import "./financial-management.css";
 import "./category-modal.css";
+import FinancialReportActions, { type ReportRow } from "./FinancialReportActions";
+import "./finance-report-layout.css";
 
 type FinancialTab = "overview" | "income" | "expenses";
 type RangePreset = "today" | "yesterday" | "7days" | "month" | "custom";
@@ -112,6 +114,19 @@ export default function FinancialManagement({ active }: { active: boolean }) {
   const filteredReceipts = useMemo(() => { const term = search.trim().toLocaleLowerCase("pt-BR"); return receipts.filter(sale => !term || `${sale.receipt_number} ${sale.customer_name ?? ""} ${profiles.get(sale.created_by) ?? ""} ${sale.sale_payments.map(payment => payment.method).join(" ")}`.toLocaleLowerCase("pt-BR").includes(term)); }, [receipts, search, profiles]);
   const filteredIndividualIncomes = useMemo(() => { const term = search.trim().toLocaleLowerCase("pt-BR"); return individualIncomes.filter(income => !term || `${income.description} ${income.category} ${income.customer_name ?? ""} ${income.payment_method} ${profiles.get(income.created_by) ?? ""}`.toLocaleLowerCase("pt-BR").includes(term)); }, [individualIncomes, search, profiles]);
   const filteredExpenses = useMemo(() => expenses.filter(expense => (expenseStatus === "all" || expense.status === expenseStatus) && (!search.trim() || `${expense.description} ${expense.category} ${expense.supplier ?? ""}`.toLocaleLowerCase("pt-BR").includes(search.trim().toLocaleLowerCase("pt-BR")))), [expenses, expenseStatus, search]);
+  const reportIncomes = useMemo<ReportRow[]>(() => [
+    ...completedSales.flatMap(sale => {
+      const cashTotal = sale.sale_payments.filter(payment => payment.method === "Dinheiro").reduce((sum, payment) => sum + Number(payment.amount), 0);
+      let change = Number(sale.change_amount);
+      return sale.sale_payments.filter(payment => payment.method !== "Crediário").map(payment => {
+        let amount = Number(payment.amount);
+        if (payment.method === "Dinheiro" && cashTotal > 0) { const deduction = Math.min(amount, change); amount -= deduction; change -= deduction; }
+        return { date: dateLabel(sale.created_at), description: `Venda #${sale.receipt_number}`, category: "VENDAS", customer: sale.customer_name ?? "Cliente avulso", method: payment.method, amount: Math.max(amount, 0), status: "Recebida" };
+      }).filter(row => row.amount > 0);
+    }),
+    ...individualIncomes.map(income => ({ date: dateLabel(income.received_at), description: income.description, category: income.category, customer: income.customer_name ?? "", method: income.payment_method, amount: Number(income.amount), status: "Recebida" })),
+  ], [completedSales, individualIncomes]);
+  const reportExpenses = useMemo<ReportRow[]>(() => expenses.filter(expense => (expense.paid_at && dateKey(new Date(expense.paid_at)) >= from && dateKey(new Date(expense.paid_at)) <= to) || (expense.due_date >= from && expense.due_date <= to)).map(expense => ({ date: expense.paid_at ? dateLabel(expense.paid_at) : new Date(`${expense.due_date}T12:00:00`).toLocaleDateString("pt-BR"), description: expense.description, category: expense.category, customer: expense.supplier ?? "", method: expense.payment_method ?? "", amount: Number(expense.amount), status: expense.status === "pending" ? "Pendente" : expense.status === "paid" ? "Paga" : "Cancelada" })), [expenses, from, to]);
   if (!active) return null;
 
   const setRange = (value: RangePreset) => { setPreset(value); const today = new Date(); const end = dateKey(today); const start = new Date(today); if (value === "today") { setFrom(end); setTo(end); } if (value === "yesterday") { start.setDate(start.getDate() - 1); setFrom(dateKey(start)); setTo(dateKey(start)); } if (value === "7days") { start.setDate(start.getDate() - 6); setFrom(dateKey(start)); setTo(end); } if (value === "month") { setFrom(`${end.slice(0, 8)}01`); setTo(end); } };
@@ -172,7 +187,7 @@ export default function FinancialManagement({ active }: { active: boolean }) {
   const maximum = Math.max(...chartDays.flatMap(day => [day.income, day.expense]), 1);
 
   return <div className="finance-screen"><section className="finance-workspace">
-    <header className="finance-heading"><div><span className="finance-kicker">GESTÃO FINANCEIRA</span><h2>Financeiro</h2><p>Entradas e saídas reais do seu negócio.</p></div><button className="finance-refresh" onClick={() => void load()} disabled={loading} aria-label="Atualizar financeiro"><RefreshCw size={16}/></button></header>
+    <header className="finance-heading"><div><span className="finance-kicker">GESTÃO FINANCEIRA</span><h2>Financeiro</h2><p>Entradas e saídas reais do seu negócio.</p></div><div className="finance-heading-actions"><FinancialReportActions period={`${new Date(`${from}T12:00:00`).toLocaleDateString("pt-BR")} a ${new Date(`${to}T12:00:00`).toLocaleDateString("pt-BR")}`} incomes={reportIncomes} expenses={reportExpenses}/><button className="finance-refresh" onClick={() => void load()} disabled={loading} aria-label="Atualizar financeiro"><RefreshCw size={16}/></button></div></header>
     <div className="finance-tabs" role="tablist" aria-label="Financeiro"><button role="tab" aria-selected={tab === "overview"} className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>Visão geral</button><button role="tab" aria-selected={tab === "income"} className={tab === "income" ? "active" : ""} onClick={() => setTab("income")}>Receitas</button><button role="tab" aria-selected={tab === "expenses"} className={tab === "expenses" ? "active" : ""} onClick={() => setTab("expenses")}>Despesas</button></div>
     <div className="finance-filters"><div><CalendarDays size={16}/><b>Período</b></div><select aria-label="Período do financeiro" value={preset} onChange={event => setRange(event.target.value as RangePreset)}><option value="today">Hoje</option><option value="yesterday">Ontem</option><option value="7days">Últimos 7 dias</option><option value="month">Este mês</option><option value="custom">Personalizado</option></select><label>De<input type="date" value={from} max={to} onChange={event => { setPreset("custom"); setFrom(event.target.value); }}/></label><label>Até<input type="date" value={to} min={from} onChange={event => { setPreset("custom"); setTo(event.target.value); }}/></label></div>
     {error && !categoryOpen && <div className="finance-error" role="alert">{error}</div>}
