@@ -17,6 +17,7 @@ const money = (value: number) => value.toLocaleString("pt-BR", { style: "currenc
 const localDay = (value: string) => {
   const date = new Date(value);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
 const displayDay = (value: string) => new Date(`${value}T12:00:00`).toLocaleDateString("pt-BR", { dateStyle: "long" });
 
 export function SalesReportTabs({ value, onChange }: { value: ReportType; onChange: (value: ReportType) => void }) {
