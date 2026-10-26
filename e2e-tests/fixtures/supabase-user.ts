@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 
 export type TestAccount = { id: string; email: string; password: string; name: string };
 
-export async function createTestAccount(role: "admin" | "operator" = "operator"): Promise<{ account: TestAccount; cleanup: () => Promise<void> }> {
+export async function createTestAccount(role: "admin" | "operator" = "operator") {
   const url = process.env.SUPABASE_URL;
   const secret = process.env.SUPABASE_SECRET_KEY;
   if (!url || !secret) throw new Error("Supabase test credentials were not injected into the Playwright runtime.");
@@ -23,6 +23,15 @@ export async function createTestAccount(role: "admin" | "operator" = "operator")
       const { data: sale, error: saleError } = await admin.from("sales").select("id,cash_session_id,created_by,total,sale_items(product_name),sale_payments(method,amount)").eq("receipt_number", receiptNumber).single();
       if (saleError || !sale) throw new Error(saleError?.message || "Persisted sale was not found.");
       return sale;
+    },
+    verifyExtra: async (name: string) => {
+      const { data: extra, error: extraError } = await admin.from("extras").select("id,name,price,is_active").eq("name", name).single();
+      if (extraError || !extra) throw new Error(extraError?.message || "Persisted extra was not found.");
+      return extra;
+    },
+    cleanupExtra: async (name: string) => {
+      const { error: extraError } = await admin.from("extras").delete().eq("name", name);
+      if (extraError) throw new Error(`Could not clean up test extra: ${extraError.message}`);
     },
     cleanup: async () => {
       const { data: sessions } = await admin.from("cash_sessions").select("id").eq("opened_by", data.user.id);

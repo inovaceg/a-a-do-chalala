@@ -56,7 +56,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     ]).then(([catalog, session, availableExtras]) => {
       if (!mounted) return;
       if (catalog.data?.length) setProducts(catalog.data as Product[]);
-      setExtras((availableExtras.data ?? []) as Extra[]);
+      setExtras((availableExtras.data ?? []).map(extra => ({ ...extra, price: Number(extra.price) })) as Extra[]);
       if (session.data) setCashSession(session.data as { id: string; register_id: string });
       if (session.error) setNotice("Não foi possível abrir um caixa. Verifique se há um caixa disponível.");
       if (availableExtras.error) setNotice("Não foi possível carregar os complementos cadastrados.");
@@ -66,10 +66,30 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   const cartTotal = useMemo(() => cart.reduce((sum, item) => sum + item.product.price + item.extras.reduce((n, extra) => n + extra.price, 0), 0), [cart]);
   const filtered = products.filter(p => `${p.name} ${p.category}`.toLowerCase().includes(query.toLowerCase()));
   const saveProducts = (next: Product[]) => { setProducts(next); localStorage.setItem("chalala-products", JSON.stringify(next)); };
-  const saveExtras = (next: Extra[]) => { setExtras(next); localStorage.setItem("chalala-extras", JSON.stringify(next)); };
   const add = (product: Product, picked: Extra[] = []) => { setCart(c => [...c, { id: Date.now() + Math.random(), product, extras: picked }]); };
-  const beginProduct = (product: Product) => { const available = product.extras ?? extras; if (available.length) { setCustomize(product); setSelectedExtras([]); } else add(product); };
-  const submitCatalog = (event: React.FormEvent) => { event.preventDefault(); const name = formName.trim(); const price = Number(formPrice); if (!name || !Number.isFinite(price) || price < 0) return; if (dialog === "product") { saveProducts([...products, { name, category: `${formCategory}${formCombo ? " • Combo" : ""}`, price, color: "lilac", emoji: formCombo ? "🍨" : "🥣", kind: formCombo ? "combo" : "product", extras: formExtras.map(n => extras.find(e => e.name === n)).filter((e): e is Extra => Boolean(e)) }]); setNotice(formCombo ? "Combo cadastrado com sucesso." : "Produto cadastrado com sucesso."); } else { const next = [...extras, { name, price }]; saveExtras(next); setNotice("Complemento cadastrado com sucesso."); } setFormName(""); setFormPrice(""); setFormExtras([]); setDialog(null); window.setTimeout(() => setNotice(""), 3000); };
+  const availableExtras = (product: Product) => extras.length ? extras : product.extras ?? [];
+  const beginProduct = (product: Product) => { const choices = availableExtras(product); if (choices.length) { setCustomize({ ...product, extras: choices }); setSelectedExtras([]); } else add(product); };
+  const submitCatalog = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const name = formName.trim();
+    const price = Number(formPrice);
+    if (!name || !Number.isFinite(price) || price < 0) return;
+    if (dialog === "product") {
+      saveProducts([...products, { name, category: `${formCategory}${formCombo ? " • Combo" : ""}`, price, color: "lilac", emoji: formCombo ? "🍨" : "🥣", kind: formCombo ? "combo" : "product", extras: formExtras.map(n => extras.find(e => e.name === n)).filter((e): e is Extra => Boolean(e)) }]);
+      setNotice(formCombo ? "Combo cadastrado com sucesso." : "Produto cadastrado com sucesso.");
+    } else {
+      const { data, error } = await supabase.rpc("save_extra", { p_extra_id: null, p_name: name, p_price: price });
+      if (error || !data) { setNotice(error?.message.toLowerCase().includes("already exists") ? "Já existe um complemento com esse nome." : "Não foi possível salvar o complemento."); return; }
+      const saved = { ...(data as Extra), price: Number((data as Extra).price) };
+      setExtras(current => [...current, saved].sort((a, b) => a.name.localeCompare(b.name)));
+      setNotice("Complemento cadastrado com sucesso.");
+    }
+    setFormName("");
+    setFormPrice("");
+    setFormExtras([]);
+    setDialog(null);
+    window.setTimeout(() => setNotice(""), 3000);
+  };
   const pay = () => { if (cart.length) setCheckoutOpen(true); };
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -173,6 +193,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     {notice && <div className="toast-message success-toast"><Check size={17}/>{notice}<button onClick={() => setNotice("")} aria-label="Fechar"><X size={15}/></button></div>}
     {closedSale && <div className="receipt-backdrop"><section className="sale-receipt" role="dialog" aria-modal="true" aria-labelledby="receipt-title"><div className="receipt-logo">AÇAÍ DO CHALALA</div><h2 id="receipt-title">Comprovante não fiscal</h2><span>Venda #{closedSale.id} · {new Date().toLocaleDateString("pt-BR")}</span><strong>Venda concluída com sucesso</strong><div className="receipt-items"><div className="receipt-columns"><span>ITEM</span><span>QTD</span><span>VALOR</span></div>{closedSale.items.map(item => <div className="receipt-line" key={item.id}><span className="receipt-description"><b>{item.product.name}</b>{item.extras.map(extra => <small key={extra.name}>+ {extra.name} ({money(extra.price)})</small>)}</span><span>1</span><b>{money(totalOf(item))}</b></div>)}<div className="receipt-total"><span>DESCONTO</span><b>− {money(closedSale.discount)}</b></div>{closedSale.payments.map((payment, index) => <div className="receipt-total" key={index}><span>{payment.method.toUpperCase()}</span><b>{money(payment.amount)}</b></div>)}{closedSale.change > 0 && <div className="receipt-total"><span>TROCO</span><b>{money(closedSale.change)}</b></div>}{closedSale.creditCustomer && <div className="receipt-total"><span>CLIENTE / VENCIMENTO</span><b>{closedSale.creditCustomer} · {closedSale.creditDueDate}</b></div>}<div className="receipt-total"><span>TOTAL</span><b>{money(closedSale.total)}</b></div></div><div className="receipt-actions"><button onClick={() => window.print()}><Printer size={15}/> Imprimir / Salvar PDF</button><button className="receipt-close" onClick={() => setClosedSale(null)}>Fechar</button></div></section></div>}
     <SalesManagement active={active === "Vendas"} />
+    <ExtraManagement active={active === "Produtos & estoque" && role === "admin"} extras={extras} onSaved={saved => setExtras(current => [...current.filter(extra => extra.id !== saved.id), saved].sort((a, b) => a.name.localeCompare(b.name)))} />
   </div>;
 }
 function ActiveIcon({ active }: { active: string }) { const Icon = active === "Clientes" ? Users : active === "Financeiro" ? Wallet : active === "Vendas" ? Banknote : Boxes; return <Icon size={27}/>; }

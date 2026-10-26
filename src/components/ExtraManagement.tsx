@@ -3,7 +3,7 @@ import { Check, Pencil, Plus, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import "./extra-management.css";
 
-type Extra = { id: string; name: string; price: number; is_active?: boolean };
+type Extra = { id?: string; name: string; price: number; is_active?: boolean };
 
 export default function ExtraManagement({ active, extras, onSaved }: { active: boolean; extras: Extra[]; onSaved: (extra: Extra) => void }) {
   const [open, setOpen] = useState(false);
@@ -44,7 +44,8 @@ export default function ExtraManagement({ active, extras, onSaved }: { active: b
       setError(saveError?.message.toLowerCase().includes("already exists") ? "Já existe um complemento com esse nome." : "Não foi possível salvar o complemento.");
       return;
     }
-    onSaved(data as Extra);
+    const saved = data as Extra;
+    onSaved({ ...saved, price: Number(saved.price) });
     setEditing(null);
     setFormOpen(false);
     setName("");
