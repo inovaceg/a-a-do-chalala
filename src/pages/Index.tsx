@@ -13,9 +13,9 @@ import "./product-edit.css";
 import "./combo-editor.css";
 import "./coupon-receipt.css";
 
-type Extra = { id?: string; name: string; price: number; is_active?: boolean };
+type Extra = { id?: string; name: string; price: number; cost_price: number; is_active?: boolean };
 type ComboComponent = { id: string; name: string; type: "product"; quantity: number };
-type Product = { id?: string; name: string; category: string; price: number; color: string; emoji: string; kind?: "combo" | "product"; extras?: Extra[]; combo_items?: ComboComponent[]; is_active?: boolean };
+type Product = { id?: string; name: string; category: string; price: number; cost_price: number; color: string; emoji: string; kind?: "combo" | "product"; extras?: Extra[]; combo_items?: ComboComponent[]; is_active?: boolean };
 type CartItem = { id: number; product: Product; extras: Extra[] };
 type PaymentMethod = "Dinheiro" | "Cartão de débito" | "Cartão de crédito" | "Pix" | "Vale alimentação" | "Crediário";
 type PaymentLine = { method: PaymentMethod; amount: number };
@@ -57,6 +57,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   const [selectedExtraIndex, setSelectedExtraIndex] = useState(0);
   const [formName, setFormName] = useState("");
   const [formPrice, setFormPrice] = useState("");
+  const [formCostPrice, setFormCostPrice] = useState("");
   const [formCategory, setFormCategory] = useState("Açaí");
   const [formCombo, setFormCombo] = useState(false);
   const [formExtras, setFormExtras] = useState<string[]>([]);
@@ -64,20 +65,20 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   const [checkoutSaving, setCheckoutSaving] = useState(false);
   useEffect(() => {
     let mounted = true;
-    const catalogQuery = supabase.from("products").select("id,name,category,price,color,emoji,kind,extras,combo_items,is_active");
+    const catalogQuery = supabase.from("products").select("id,name,category,price,cost_price,color,emoji,kind,extras,combo_items,is_active");
     if (role !== "admin") catalogQuery.eq("is_active", true);
     Promise.all([
       catalogQuery,
       supabase.rpc("open_cash_session"),
-      supabase.from("extras").select("id,name,price,is_active").eq("is_active", true).order("name"),
+      supabase.from("extras").select("id,name,price,cost_price,is_active").eq("is_active", true).order("name"),
     ]).then(([catalog, session, availableExtras]) => {
       if (!mounted) return;
       if (catalog.data) {
-        const savedProducts = catalog.data.map(product => ({ ...product, price: Number(product.price) })) as Product[];
+        const savedProducts = catalog.data.map(product => ({ ...product, price: Number(product.price), cost_price: Number(product.cost_price) })) as Product[];
         setCatalogProducts(savedProducts);
         setProducts(savedProducts.length ? savedProducts : initialProducts);
       }
-      setExtras((availableExtras.data ?? []).map(extra => ({ ...extra, price: Number(extra.price) })) as Extra[]);
+      setExtras((availableExtras.data ?? []).map(extra => ({ ...extra, price: Number(extra.price), cost_price: Number(extra.cost_price) })) as Extra[]);
       if (session.data) setCashSession(session.data as { id: string; register_id: string });
       if (session.error) setNotice("Não foi possível abrir um caixa. Verifique se há um caixa disponível.");
       if (availableExtras.error) setNotice("Não foi possível carregar os complementos cadastrados.");
@@ -138,7 +139,8 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     event.preventDefault();
     const name = formName.trim().toLocaleUpperCase("pt-BR");
     const price = Number(formPrice);
-    if (!name || !Number.isFinite(price) || price < 0) return;
+    const costPrice = Number(formCostPrice);
+    if (!name || !Number.isFinite(price) || price < 0 || !Number.isFinite(costPrice) || costPrice < 0) return;
     if (dialog === "product") {
       const productExtras = formExtras.map(n => extras.find(e => e.name === n)).filter((e): e is Extra => Boolean(e));
       const selectedComboItems = Array.from(document.querySelectorAll<HTMLInputElement>(".combo-composition-editor input:checked")).map(input => {
@@ -147,20 +149,21 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
         return name ? { id, name, type: "product" as const, quantity: 1 } : null;
       }).filter((component): component is ComboComponent => component !== null);
       const category = `${formCategory}${formCombo ? " • Combo" : ""}`;
-      const { data, error } = await supabase.rpc("save_product", { p_product_id: editingProduct?.id ?? null, p_name: name, p_category: category, p_price: price, p_kind: formCombo ? "combo" : "product", p_extras: productExtras, p_combo_items: selectedComboItems });
+      const { data, error } = await supabase.rpc("save_product", { p_product_id: editingProduct?.id ?? null, p_name: name, p_category: category, p_price: price, p_cost_price: costPrice, p_kind: formCombo ? "combo" : "product", p_extras: productExtras, p_combo_items: selectedComboItems });
       if (error || !data) { setNotice("Não foi possível salvar o produto."); return; }
-      const saved = { ...(data as Product), price: Number((data as Product).price), color: editingProduct?.color ?? "lilac", emoji: editingProduct?.emoji ?? (formCombo ? "🍨" : "🥣"), extras: productExtras };
+      const saved = { ...(data as Product), price: Number((data as Product).price), cost_price: Number((data as Product).cost_price), color: editingProduct?.color ?? "lilac", emoji: editingProduct?.emoji ?? (formCombo ? "🍨" : "🥣"), extras: productExtras };
       saveProducts(editingProduct ? catalogProducts.map(product => product.id === editingProduct.id ? saved : product) : [...catalogProducts, saved]);
       setNotice(editingProduct ? "Produto atualizado com sucesso." : formCombo ? "Combo cadastrado com sucesso." : "Produto cadastrado com sucesso.");
     } else {
-      const { data, error } = await supabase.rpc("save_extra", { p_extra_id: null, p_name: name, p_price: price });
+      const { data, error } = await supabase.rpc("save_extra", { p_extra_id: null, p_name: name, p_price: price, p_cost_price: costPrice });
       if (error || !data) { setNotice(error?.message.toLowerCase().includes("already exists") ? "Já existe um complemento com esse nome." : "Não foi possível salvar o complemento."); return; }
-      const saved = { ...(data as Extra), price: Number((data as Extra).price) };
+      const saved = { ...(data as Extra), price: Number((data as Extra).price), cost_price: Number((data as Extra).cost_price) };
       setExtras(current => [...current, saved].sort((a, b) => a.name.localeCompare(b.name)));
       setNotice("Complemento cadastrado com sucesso.");
     }
     setFormName("");
     setFormPrice("");
+    setFormCostPrice("");
     setFormExtras([]);
     setDialog(null);
     window.setTimeout(() => setNotice(""), 3000);
@@ -274,7 +277,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     return () => identity.remove();
   }, [closedSale]);
   const totalOf = (item: CartItem) => item.product.price + item.extras.reduce((sum, e) => sum + e.price, 0);
-  const openForm = (type: "product" | "extra", product?: Product) => { setEditingProduct(product ?? null); setFormName(product?.name ?? ""); setFormPrice(product ? String(product.price) : ""); setFormCategory(product?.category.split(" • ")[0] ?? "Açaí"); setFormCombo(product?.kind === "combo" || Boolean(product?.category.includes("Combo"))); setFormExtras(product?.extras?.map(extra => extra.name) ?? []); setDialog(type); };
+  const openForm = (type: "product" | "extra", product?: Product) => { setEditingProduct(product ?? null); setFormName(product?.name ?? ""); setFormPrice(product ? String(product.price) : ""); setFormCostPrice(product ? String(product.cost_price ?? 0) : ""); setFormCategory(product?.category.split(" • ")[0] ?? "Açaí"); setFormCombo(product?.kind === "combo" || Boolean(product?.category.includes("Combo"))); setFormExtras(product?.extras?.map(extra => extra.name) ?? []); setDialog(type); };
   useEffect(() => {
     if (role !== "admin" || active !== "Produtos & estoque") return;
     const rows = Array.from(document.querySelectorAll<HTMLElement>(".catalog-list-row"));
