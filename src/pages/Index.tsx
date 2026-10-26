@@ -343,7 +343,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     setClosedSale(null);
     setCouponStartOpen(false);
     setActive("PDV");
-    setNotice(selection.delivery ? "Cupom iniciado para delivery." : selection.customer ? `Cupom identificado para ${selection.customer.name}.` : "Cupom sem identificação iniciado.");
+    setNotice(selection.delivery ? `Cupom iniciado para delivery com ${selection.courier?.name}.` : selection.customer ? `Cupom identificado para ${selection.customer.name}.` : "Cupom sem identificação iniciado.");
     window.setTimeout(() => setNotice(""), 3200);
   };
   const cancelCouponStart = () => {
