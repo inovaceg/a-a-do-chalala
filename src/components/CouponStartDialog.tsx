@@ -1,53 +1,87 @@
-import { useState } from "react";
-import { Check, UserRound, UserRoundX, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, MapPin, UserRound, UserRoundX, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import "./coupon-start-dialog.css";
 
-export type CouponCustomer = { id: string; name: string; whatsapp: string };
-type Props = { open: boolean; onCancel: () => void; onConfirm: (customer: CouponCustomer | null) => void };
+export type CouponCustomer = { id: string; name: string; whatsapp: string; street: string | null; address_number: string | null; neighborhood: string | null; city: string | null; address_complement: string | null; postal_code: string | null };
+export type CouponSelection = { customer: CouponCustomer | null; delivery: boolean; deliveryAddress: string };
+type CustomerFields = Omit<CouponCustomer, "id">;
+type Props = { open: boolean; onCancel: () => void; onConfirm: (selection: CouponSelection) => void };
+const emptyFields: CustomerFields = { name: "", whatsapp: "", street: "", address_number: "", neighborhood: "", city: "", address_complement: "", postal_code: "" };
+const addressFields: { key: keyof CustomerFields; label: string; placeholder: string }[] = [
+  { key: "street", label: "Rua", placeholder: "Rua" },
+  { key: "address_number", label: "Número", placeholder: "Número" },
+  { key: "neighborhood", label: "Bairro", placeholder: "Bairro" },
+  { key: "city", label: "Cidade", placeholder: "Cidade" },
+  { key: "address_complement", label: "Complemento", placeholder: "Apartamento, referência…" },
+  { key: "postal_code", label: "CEP", placeholder: "00000-000" },
+];
+const fullAddress = (fields: CustomerFields) => [fields.street, fields.address_number, fields.address_complement, fields.neighborhood, fields.city, fields.postal_code ? `CEP ${fields.postal_code}` : ""].filter(Boolean).join(", ");
 
 export default function CouponStartDialog({ open, onCancel, onConfirm }: Props) {
   const [anonymous, setAnonymous] = useState(false);
-  const [name, setName] = useState("");
-  const [whatsapp, setWhatsapp] = useState("");
+  const [delivery, setDelivery] = useState(false);
+  const [fields, setFields] = useState<CustomerFields>(emptyFields);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    if (open) {
+      setAnonymous(false);
+      setDelivery(false);
+      setFields(emptyFields);
+      setError("");
+    }
+  }, [open]);
+
   if (!open) return null;
+
+  const updateField = (key: keyof CustomerFields, value: string) => setFields(current => ({ ...current, [key]: key === "whatsapp" || key === "postal_code" ? value : value.toLocaleUpperCase("pt-BR") }));
 
   const start = async (event: React.FormEvent) => {
     event.preventDefault();
     setError("");
     if (anonymous) {
-      onConfirm(null);
+      onConfirm({ customer: null, delivery, deliveryAddress: delivery ? fullAddress(fields) : "" });
       return;
     }
-    const customerName = name.trim().toLocaleUpperCase("pt-BR");
-    const customerWhatsapp = whatsapp.trim();
-    if (!customerName || !customerWhatsapp) {
-      setError("Informe o nome e o WhatsApp ou escolha cupom sem identificação.");
+    const name = fields.name.trim().toLocaleUpperCase("pt-BR");
+    const whatsapp = fields.whatsapp.trim();
+    if (!name || !whatsapp) {
+      setError("Nome e WhatsApp são obrigatórios, ou escolha cupom sem identificação.");
       return;
     }
+    const optional = Object.fromEntries(addressFields.map(field => [field.key, fields[field.key]?.trim() || null])) as Pick<CustomerFields, "street" | "address_number" | "neighborhood" | "city" | "address_complement" | "postal_code">;
     setSaving(true);
-    const { data: existing, error: lookupError } = await supabase.from("customers").select("id,name,whatsapp").eq("whatsapp", customerWhatsapp).maybeSingle();
+    const { data: existing, error: lookupError } = await supabase.from("customers").select("id,name,whatsapp,street,address_number,neighborhood,city,address_complement,postal_code").eq("whatsapp", whatsapp).limit(1).maybeSingle();
     if (lookupError) {
       setSaving(false);
       setError("Não foi possível verificar o cadastro do cliente.");
       return;
     }
+    let customer: CouponCustomer | null = null;
     if (existing) {
-      setSaving(false);
-      onConfirm(existing as CouponCustomer);
-      return;
+      const updates = Object.fromEntries(Object.entries(optional).filter(([, value]) => value !== null));
+      const { data, error: updateError } = await supabase.from("customers").update({ name, whatsapp, ...updates }).eq("id", existing.id).select("id,name,whatsapp,street,address_number,neighborhood,city,address_complement,postal_code").single();
+      if (updateError || !data) {
+        setSaving(false);
+        setError("Não foi possível atualizar o cadastro do cliente.");
+        return;
+      }
+      customer = data as CouponCustomer;
+    } else {
+      const { data, error: createError } = await supabase.from("customers").insert({ name, whatsapp, ...optional }).select("id,name,whatsapp,street,address_number,neighborhood,city,address_complement,postal_code").single();
+      if (createError || !data) {
+        setSaving(false);
+        setError("Não foi possível salvar o cliente para este cupom.");
+        return;
+      }
+      customer = data as CouponCustomer;
     }
-    const { data: created, error: createError } = await supabase.from("customers").insert({ name: customerName, whatsapp: customerWhatsapp }).select("id,name,whatsapp").single();
     setSaving(false);
-    if (createError || !created) {
-      setError("Não foi possível salvar o cliente para este cupom.");
-      return;
-    }
-    onConfirm(created as CouponCustomer);
+    const savedAddress = [customer.street, customer.address_number, customer.address_complement, customer.neighborhood, customer.city, customer.postal_code ? `CEP ${customer.postal_code}` : ""].filter(Boolean).join(", ");
+    onConfirm({ customer, delivery, deliveryAddress: delivery ? savedAddress || fullAddress(fields) : "" });
   };
 
-  return <div className="coupon-start-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !saving) onCancel(); }}><form className="coupon-start-dialog" onSubmit={start} role="dialog" aria-modal="true" aria-labelledby="coupon-start-title"><button type="button" className="coupon-start-close" onClick={onCancel} aria-label="Fechar" disabled={saving}><X size={18}/></button><span className="coupon-start-kicker">NOVO PEDIDO</span><h2 id="coupon-start-title">Identificação do cupom</h2><p>Informe quem será identificado no cupom ou escolha continuar sem identificação.</p><div className="coupon-start-options"><label className={`coupon-option ${!anonymous ? "coupon-option-active" : ""}`}><input type="radio" name="coupon-identity" checked={!anonymous} onChange={() => setAnonymous(false)}/><UserRound size={17}/><span>Identificar cliente</span></label><label className={`coupon-option ${anonymous ? "coupon-option-active" : ""}`}><input type="radio" name="coupon-identity" checked={anonymous} onChange={() => setAnonymous(true)}/><UserRoundX size={17}/><span>Cupom sem identificação</span></label></div>{!anonymous && <div className="coupon-customer-fields"><label>Nome do cliente <i>Obrigatório</i><input autoFocus required maxLength={160} value={name} onChange={event => setName(event.target.value.toLocaleUpperCase("pt-BR"))} placeholder="NOME COMPLETO"/></label><label>WhatsApp <i>Obrigatório</i><input type="tel" required maxLength={30} value={whatsapp} onChange={event => setWhatsapp(event.target.value)} placeholder="(32) 99999-9999"/></label><small>Se o WhatsApp já estiver cadastrado, o cupom será vinculado ao cadastro existente.</small></div>}{error && <p className="coupon-start-error" role="alert">{error}</p>}<footer><button type="button" className="coupon-start-cancel" onClick={onCancel} disabled={saving}>Cancelar</button><button className="coupon-start-confirm" disabled={saving}><Check size={16}/>{saving ? "Preparando cupom…" : "Abrir cupom"}</button></footer></form></div>;
+  return <div className="coupon-start-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !saving) onCancel(); }}><form className="coupon-start-dialog" onSubmit={start} role="dialog" aria-modal="true" aria-labelledby="coupon-start-title"><button type="button" className="coupon-start-close" onClick={onCancel} aria-label="Fechar" disabled={saving}><X size={18}/></button><span className="coupon-start-kicker">NOVO PEDIDO</span><h2 id="coupon-start-title">Identificação do cupom</h2><p>Preencha os dados do cliente ou escolha continuar sem identificação.</p><div className="coupon-start-options"><label className={`coupon-option ${!anonymous ? "coupon-option-active" : ""}`}><input type="radio" name="coupon-identity" checked={!anonymous} onChange={() => setAnonymous(false)}/><UserRound size={17}/><span>Identificar cliente</span></label><label className={`coupon-option ${anonymous ? "coupon-option-active" : ""}`}><input type="radio" name="coupon-identity" checked={anonymous} onChange={() => setAnonymous(true)}/><UserRoundX size={17}/><span>Cupom sem identificação</span></label></div>{!anonymous && <div className="coupon-customer-fields"><label>Nome do cliente <i>Obrigatório</i><input autoFocus required maxLength={160} value={fields.name} onChange={event => updateField("name", event.target.value)} placeholder="NOME COMPLETO"/></label><label>WhatsApp <i>Obrigatório</i><input type="tel" required maxLength={30} value={fields.whatsapp} onChange={event => updateField("whatsapp", event.target.value)} placeholder="(32) 99999-9999"/></label></div>}<label className="coupon-delivery-toggle"><input type="checkbox" checked={delivery} onChange={event => setDelivery(event.target.checked)}/><span className="coupon-delivery-icon"><MapPin size={17}/></span><span><b>Este pedido é delivery</b><small>Será contado no relatório diário de entregas.</small></span></label><section className="coupon-address-section"><header><MapPin size={15}/><b>Endereço para entrega</b><small>Opcional</small></header><div className="coupon-address-fields">{addressFields.map(field => <label className={field.key === "address_complement" ? "coupon-address-wide" : ""} key={field.key}>{field.label}<input maxLength={field.key === "postal_code" ? 12 : 160} value={fields[field.key] ?? ""} onChange={event => updateField(field.key, event.target.value)} placeholder={field.placeholder}/></label>)}</div></section>{error && <p className="coupon-start-error" role="alert">{error}</p>}<footer><button type="button" className="coupon-start-cancel" onClick={onCancel} disabled={saving}>Cancelar</button><button className="coupon-start-confirm" disabled={saving}><Check size={16}/>{saving ? "Salvando cliente…" : "Abrir cupom"}</button></footer></form></div>;
 }

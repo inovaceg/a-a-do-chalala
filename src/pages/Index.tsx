@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import PaymentCheckout from "@/components/PaymentCheckout";
-import CouponStartDialog, { type CouponCustomer } from "@/components/CouponStartDialog";
+import CouponStartDialog, { type CouponCustomer, type CouponSelection } from "@/components/CouponStartDialog";
 import TeamManagement from "@/components/TeamManagement";
 import SalesManagement from "@/components/SalesManagement";
 import CustomerManagement from "@/components/CustomerManagement";
@@ -43,8 +43,10 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   const [dialog, setDialog] = useState<"product" | "extra" | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [customize, setCustomize] = useState<Product | null>(null);
-  const [closedSale, setClosedSale] = useState<{ items: CartItem[]; total: number; id: string; discount: number; payments: PaymentLine[]; change: number; creditCustomer: string; creditDueDate: string; customer: CouponCustomer | null } | null>(null);
+  const [closedSale, setClosedSale] = useState<{ items: CartItem[]; total: number; id: string; discount: number; payments: PaymentLine[]; change: number; creditCustomer: string; creditDueDate: string; customer: CouponCustomer | null; delivery: boolean; deliveryAddress: string } | null>(null);
   const [currentSaleCustomer, setCurrentSaleCustomer] = useState<CouponCustomer | null>(null);
+  const [currentSaleDelivery, setCurrentSaleDelivery] = useState(false);
+  const [currentDeliveryAddress, setCurrentDeliveryAddress] = useState("");
   const [couponStartOpen, setCouponStartOpen] = useState(false);
   const [couponStarted, setCouponStarted] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
@@ -229,11 +231,16 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
       p_items: cart.map(item => ({ product_id: item.product.id, extras: item.extras })),
       p_payments: payment.payments,
       p_customer_id: currentSaleCustomer?.id ?? null,
+      p_delivery_address: currentDeliveryAddress || null,
+      p_is_delivery: currentSaleDelivery,
     });
     setCheckoutSaving(false);
     if (error || !data) { setNotice(error?.message.includes("discount") ? "Somente uma administradora pode aplicar desconto." : error?.message || "Não foi possível registrar a venda."); return; }
-    setClosedSale({ items: [...cart], total: Number(data.total), id: data.receipt_number, customer: currentSaleCustomer, ...payment });
+    setClosedSale({ items: [...cart], total: Number(data.total), id: data.receipt_number, customer: currentSaleCustomer, delivery: currentSaleDelivery, deliveryAddress: currentDeliveryAddress, ...payment });
     setCurrentSaleCustomer(null);
+    setCurrentSaleDelivery(false);
+    setCurrentDeliveryAddress("");
+    setCouponStarted(false);
     setCart([]);
     setCheckoutOpen(false);
   };
@@ -248,6 +255,11 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     const detail = document.createElement("span");
     detail.textContent = closedSale.customer ? `${closedSale.customer.name} · WhatsApp ${closedSale.customer.whatsapp}` : "CUPOM SEM IDENTIFICAÇÃO";
     identity.append(label, detail);
+    if (closedSale.delivery) {
+      const delivery = document.createElement("span");
+      delivery.textContent = `DELIVERY${closedSale.deliveryAddress ? ` · ${closedSale.deliveryAddress}` : ""}`;
+      identity.append(delivery);
+    }
     receipt.insertBefore(identity, receipt.querySelector(".receipt-items"));
     return () => identity.remove();
   }, [closedSale]);
@@ -311,15 +323,25 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     }
     setCouponStartOpen(true);
   };
-  const openCoupon = (customer: CouponCustomer | null) => {
-    setCurrentSaleCustomer(customer);
+  const openCoupon = (selection: CouponSelection) => {
+    setCurrentSaleCustomer(selection.customer);
+    setCurrentSaleDelivery(selection.delivery);
+    setCurrentDeliveryAddress(selection.deliveryAddress);
+    setCouponStarted(true);
     setCart([]);
     setClosedSale(null);
     setCouponStartOpen(false);
     setActive("PDV");
-    setNotice(customer ? `Cupom identificado para ${customer.name}.` : "Cupom sem identificação iniciado.");
+    setNotice(selection.delivery ? "Cupom iniciado para delivery." : selection.customer ? `Cupom identificado para ${selection.customer.name}.` : "Cupom sem identificação iniciado.");
     window.setTimeout(() => setNotice(""), 3200);
   };
+  const cancelCouponStart = () => {
+    setCouponStartOpen(false);
+    if (!couponStarted && active === "PDV") setActive(role === "admin" ? "Visão geral" : "Vendas");
+  };
+  useEffect(() => {
+    if (active === "PDV" && !couponStarted && !closedSale) setCouponStartOpen(true);
+  }, [active, couponStarted, closedSale]);
 
   return <div className="app-shell">
     <aside className={`sidebar ${mobileMenu ? "sidebar-open" : ""}`}><div className="brand-lockup"><div className="brand-mark">a<span>ç</span></div><div><strong>AÇAÍ DO<br/>CHALALA</strong><small>Sistema de Gestão e Vendas</small></div><button className="mobile-close" onClick={() => setMobileMenu(false)} aria-label="Fechar menu"><X size={18}/></button></div><div className="store-select"><span className="store-dot"/><span><b>Loja principal</b><small>Caixa 01 · Aberto</small></span><ChevronDown size={16}/></div><p className="nav-caption">MENU PRINCIPAL</p><nav>{visibleNavItems.map(item => <button key={item.label} onClick={() => { setActive(item.label); setMobileMenu(false); }} className={`nav-item ${active === item.label ? "selected" : ""}`}><item.icon size={19}/><span>{item.label}</span>{item.label === "PDV" && <span className="live-dot"/>}</button>)}</nav><div className="sidebar-bottom"><div className="help-card"><div className="help-icon"><Coffee size={18}/></div><div><b>Precisa de ajuda?</b><span>Fale com a gente</span></div><a href="https://wa.me/553287026461" target="_blank" rel="noreferrer" aria-label="Fale pelo WhatsApp">↗</a></div><div className="user-row"><div className="avatar">{initials}</div><div><b>{displayName}</b><small>{role === "admin" ? "Administradora" : "Operadora"}</small></div><button aria-label="Sair" title="Sair" onClick={async () => { const { error } = await supabase.auth.signOut({ scope: "local" }); if (error) { setNotice("Não foi possível encerrar a sessão."); return; } window.location.assign("/login"); }}><LogOut size={16}/></button></div></div></aside>
@@ -333,7 +355,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     {checkoutOpen && <PaymentCheckout total={cartTotal} saving={checkoutSaving} onCancel={() => setCheckoutOpen(false)} onComplete={completeCheckout} />}
     {notice && <div className="toast-message success-toast"><Check size={17}/>{notice}<button onClick={() => setNotice("")} aria-label="Fechar"><X size={15}/></button></div>}
     {closedSale && <div className="receipt-backdrop"><section className="sale-receipt" role="dialog" aria-modal="true" aria-labelledby="receipt-title"><div className="receipt-logo">AÇAÍ DO CHALALA</div><h2 id="receipt-title">Comprovante não fiscal</h2><span>Venda #{closedSale.id} · {new Date().toLocaleDateString("pt-BR")}</span><strong>Venda concluída com sucesso</strong><div className="receipt-items"><div className="receipt-columns"><span>ITEM</span><span>QTD</span><span>VALOR</span></div>{closedSale.items.map(item => <div className="receipt-line" key={item.id}><span className="receipt-description"><b>{item.product.name}</b>{item.extras.map(extra => <small key={extra.name}>+ {extra.name} ({money(extra.price)})</small>)}</span><span>1</span><b>{money(totalOf(item))}</b></div>)}<div className="receipt-total"><span>DESCONTO</span><b>− {money(closedSale.discount)}</b></div>{closedSale.payments.map((payment, index) => <div className="receipt-total" key={index}><span>{payment.method.toUpperCase()}</span><b>{money(payment.amount)}</b></div>)}{closedSale.change > 0 && <div className="receipt-total"><span>TROCO</span><b>{money(closedSale.change)}</b></div>}{closedSale.creditCustomer && <div className="receipt-total"><span>CLIENTE / VENCIMENTO</span><b>{closedSale.creditCustomer} · {closedSale.creditDueDate}</b></div>}<div className="receipt-total"><span>TOTAL</span><b>{money(closedSale.total)}</b></div></div><div className="receipt-actions"><button onClick={() => window.print()}><Printer size={15}/> Imprimir / Salvar PDF</button><button className="receipt-close" onClick={() => setClosedSale(null)}>Fechar</button></div></section></div>}
-    <CouponStartDialog open={couponStartOpen} onCancel={() => setCouponStartOpen(false)} onConfirm={openCoupon} />
+    <CouponStartDialog open={couponStartOpen} onCancel={cancelCouponStart} onConfirm={openCoupon} />
     <SalesManagement active={active === "Vendas"} />
     <CustomerManagement active={active === "Clientes"} />
     <ExtraManagement active={active === "Produtos & estoque" && role === "admin"} extras={extras} onSaved={saved => setExtras(current => [...current.filter(extra => extra.id !== saved.id), saved].sort((a, b) => a.name.localeCompare(b.name)))} />
