@@ -33,7 +33,7 @@ Feche o agente que estiver aberto e instale/atualize com o nome exato da impress
 & "C:\ImpressaoAcai\.venv\Scripts\python.exe" "C:\ImpressaoAcai\agent.py"
 ```
 
-Esse método cria um documento GDI do Windows e o envia ao driver selecionado; não envia ESC/POS RAW. O driver aplica as configurações de papel, fonte e margens, e os textos do cupom são centralizados. Confirme que a largura de bobina está definida nas preferências de impressão do Windows.
+Esse método desenha o cupom com GDI do Windows e o envia ao driver selecionado; não envia ESC/POS RAW. O agente consulta `HORZRES` e o DPI do contexto de impressão para medir a largura útil, centraliza o cabeçalho, destaca pedido/tipo/total e quebra descrições conforme a largura real. Confirme que o formulário da bobina está configurado nas preferências do driver.
 
 ## Método RAW/ESC-POS
 

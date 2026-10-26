@@ -59,22 +59,22 @@ def receipt_rows(job):
     payload = job["payload"]
     receipt = payload.get("receipt") or {}
     rows = [
-        {"kind": "text", "text": "AÇAÍ DO CHALALA", "align": "center", "size": 15, "bold": True},
-        {"kind": "text", "text": "O sabor que conquista!", "align": "center", "size": 9, "italic": True},
-        {"kind": "text", "text": "R. Luís Marchini, 228", "align": "center", "size": 8},
-        {"kind": "text", "text": "São Benedito - Juiz de Fora/MG", "align": "center", "size": 8},
-        {"kind": "text", "text": "CEP 36061-270", "align": "center", "size": 8},
+        {"kind": "text", "text": "AÇAÍ DO CHALALA", "align": "center", "size": 22, "bold": True},
+        {"kind": "text", "text": "O sabor que conquista!", "align": "center", "size": 10, "italic": True},
+        {"kind": "text", "text": "R. Luís Marchini, 228", "align": "center", "size": 9},
+        {"kind": "text", "text": "São Benedito - Juiz de Fora/MG", "align": "center", "size": 9},
+        {"kind": "text", "text": "CEP 36061-270", "align": "center", "size": 9},
         {"kind": "divider"},
-        {"kind": "text", "text": "COMPROVANTE DE PEDIDO", "align": "center", "size": 10, "bold": True},
+        {"kind": "text", "text": "COMPROVANTE DE PEDIDO", "align": "center", "size": 11, "bold": True},
         {"kind": "divider"},
-        {"kind": "text", "text": f"PEDIDO Nº {receipt.get('orderNumber', payload.get('title', 'TESTE'))}", "align": "center", "size": 14, "bold": True},
+        {"kind": "highlight", "text": f"PEDIDO Nº {receipt.get('orderNumber', payload.get('title', 'TESTE'))}", "align": "center", "size": 18, "bold": True},
         {"kind": "text", "text": f"DATA/HORA: {format_datetime(receipt.get('soldAt', payload.get('createdAt', datetime.now().isoformat())))}", "size": 8},
         {"kind": "text", "text": f"OPERADOR: {receipt.get('operator') or 'Caixa central'}", "size": 8},
-        {"kind": "text", "text": f"TIPO: {receipt.get('orderType') or ('DELIVERY' if receipt.get('delivery') else 'BALCÃO')}", "size": 9, "bold": True},
+        {"kind": "highlight", "text": f"TIPO: {receipt.get('orderType') or ('DELIVERY' if receipt.get('delivery') else 'BALCÃO')}", "align": "center", "size": 12, "bold": True},
     ]
 
     if receipt.get("orderType") == "DELIVERY" or receipt.get("delivery"):
-        rows.extend([{"kind": "divider"}, {"kind": "text", "text": "DADOS DA ENTREGA", "size": 9, "bold": True}])
+        rows.extend([{"kind": "divider"}, {"kind": "section", "text": "DADOS DA ENTREGA", "size": 10, "bold": True}])
         if receipt.get("customer"):
             rows.append({"kind": "text", "text": f"CLIENTE: {receipt['customer']}", "size": 8})
         if receipt.get("phone"):
@@ -102,7 +102,7 @@ def receipt_rows(job):
         elif courier:
             rows.append({"kind": "text", "text": f"ENTREGADOR: {courier}", "size": 8})
 
-    rows.append({"kind": "divider"})
+    rows.extend([{"kind": "divider"}, {"kind": "section", "text": "ITENS DO PEDIDO", "size": 10, "bold": True}])
     products = receipt.get("products", [])
     if products:
         for product in products:
@@ -133,7 +133,7 @@ def receipt_rows(job):
     if receipt.get("change"):
         rows.append({"kind": "text", "text": f"TROCO: {format_money(receipt['change'])}", "size": 8})
     if receipt.get("total") is not None:
-        rows.append({"kind": "text", "text": f"TOTAL  {format_money(receipt['total'])}", "align": "right", "size": 13, "bold": True})
+        rows.append({"kind": "total", "text": f"TOTAL  {format_money(receipt['total'])}", "align": "right", "size": 16, "bold": True})
     rows.extend([
         {"kind": "divider"},
         {"kind": "text", "text": "Obrigado pela preferência!", "align": "center", "size": 9, "bold": True},
@@ -230,56 +230,90 @@ def print_with_driver(job, config):
     printers = [printer[2] for printer in win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)]
     if printer_name not in printers:
         raise RuntimeError(f'Impressora "{printer_name}" não encontrada. Impressoras disponíveis: {", ".join(printers)}')
+
     dc = win32ui.CreateDC()
     dc.CreatePrinterDC(printer_name)
+    dpi_x = dc.GetDeviceCaps(win32con.LOGPIXELSX)
     dpi_y = dc.GetDeviceCaps(win32con.LOGPIXELSY)
     page_width = dc.GetDeviceCaps(win32con.HORZRES)
+    if dpi_x <= 0 or dpi_y <= 0 or page_width <= 0:
+        dc.DeleteDC()
+        raise RuntimeError(f"O driver retornou dimensões imprimíveis inválidas: largura={page_width}, dpi={dpi_x}x{dpi_y}.")
+    width_mm = page_width * 25.4 / dpi_x
+    side_margin = max(1, int(dpi_x * 0.8 / 25.4))
+    printable_width = page_width - 2 * side_margin
     rows = receipt_rows(job)
+    logger.info("Área imprimível reportada pelo driver: %.1f mm (%s dots), resolução %s x %s dpi", width_mm, page_width, dpi_x, dpi_y)
+
+    def select_font(row):
+        size = row.get("size", 8)
+        font = win32ui.CreateFont({"name": "Arial", "height": max(1, int(dpi_y * size / 72)), "weight": 700 if row.get("bold") else 400, "italic": row.get("italic", False), "quality": win32con.ANTIALIASED_QUALITY})
+        dc.SelectObject(font)
+        return size
+
+    def draw_centered(text, y, width=printable_width):
+        text_width = dc.GetTextExtent(text)[0]
+        dc.TextOut(max(side_margin, (page_width - text_width) // 2), y, text)
+
+    def draw_rule(y):
+        rule_font = win32ui.CreateFont({"name": "Arial", "height": max(1, int(dpi_y * 6 / 72))})
+        dc.SelectObject(rule_font)
+        dash_width = max(1, dc.GetTextExtent("-")[0])
+        dash_count = max(1, min(160, printable_width // dash_width))
+        rule = "-" * dash_count
+        draw_centered(rule, y)
+        return y + int(dpi_y * 0.10)
+
     try:
         start_result = dc.StartDoc(f"Acai Chalala {job['id']}")
         if start_result is not None and start_result <= 0:
             raise RuntimeError(f"O Windows não conseguiu iniciar o documento (retorno {start_result!r}).")
         dc.StartPage()
-        y = int(dpi_y * 0.10)
+        y = int(dpi_y * 0.08)
         for row in rows:
-            if row["kind"] == "divider":
-                font = win32ui.CreateFont({"name": "Arial", "height": int(dpi_y * 7 / 72)})
-                dc.SelectObject(font)
-                dash_width = max(1, dc.GetTextExtent("-")[0])
-                dash = "-" * max(8, min(42, page_width // dash_width))
-                dc.TextOut(max(0, (page_width - dc.GetTextExtent(dash)[0]) // 2), y, dash)
-                y += int(dpi_y * 0.13)
+            kind = row["kind"]
+            if kind == "divider":
+                y = draw_rule(y)
                 continue
-            size = row.get("size", 8)
-            bold = row.get("bold", False)
-            italic = row.get("italic", False)
-            font = win32ui.CreateFont({"name": "Arial", "height": max(1, int(dpi_y * size / 72)), "weight": 700 if bold else 400, "italic": italic})
-            dc.SelectObject(font)
-            if row["kind"] == "product":
-                quantity_width = max(dc.GetTextExtent(row["quantity"])[0], int(page_width * 0.10))
-                value_width = dc.GetTextExtent(row["value"])[0]
-                description_x = quantity_width + int(page_width * 0.03)
-                description_width = max(1, page_width - description_x - value_width - int(page_width * 0.04))
-                lines = split_to_width(row["description"], description_width, lambda text: dc.GetTextExtent(text)[0])
-                dc.TextOut(0, y, row["quantity"])
-                dc.TextOut(max(0, page_width - value_width), y, row["value"])
+            size = select_font(row)
+            line_height = max(int(dpi_y * size / 72 * 1.25), dc.GetTextExtent("Ag")[1] + 1)
+            if kind in ("highlight", "section", "total"):
+                lines = split_to_width(row["text"], printable_width - int(dpi_x * 3 / 25.4), lambda text: dc.GetTextExtent(text)[0])
+                padding_y = max(2, int(dpi_y * 0.7 / 25.4))
+                box_height = len(lines) * line_height + 2 * padding_y
+                dc.Rectangle(side_margin, y, page_width - side_margin, y + box_height)
                 for index, line in enumerate(lines):
-                    dc.TextOut(description_x, y + index * int(dpi_y * size / 72 * 1.35), line)
-                y += max(1, len(lines)) * int(dpi_y * size / 72 * 1.55)
+                    draw_centered(line, y + padding_y + index * line_height)
+                y += box_height + int(dpi_y * (0.8 if kind == "total" else 0.45) / 25.4)
                 continue
-            text_width = page_width
-            lines = split_to_width(row["text"], text_width, lambda text: dc.GetTextExtent(text)[0])
+            if kind == "product":
+                quantity = row["quantity"]
+                value = row["value"]
+                quantity_col = max(dc.GetTextExtent(quantity)[0] + int(dpi_x * 1.5 / 25.4), int(printable_width * 0.11))
+                value_width = dc.GetTextExtent(value)[0]
+                description_x = side_margin + quantity_col + int(dpi_x * 1.0 / 25.4)
+                value_x = page_width - side_margin - value_width
+                description_width = max(1, value_x - description_x - int(dpi_x * 1.0 / 25.4))
+                lines = split_to_width(row["description"], description_width, lambda text: dc.GetTextExtent(text)[0])
+                dc.TextOut(side_margin, y, quantity)
+                dc.TextOut(max(description_x, value_x), y, value)
+                for index, line in enumerate(lines):
+                    dc.TextOut(description_x, y + index * line_height, line)
+                y += max(1, len(lines)) * line_height + int(dpi_y * 0.35 / 25.4)
+                continue
+            lines = split_to_width(row["text"], printable_width, lambda text: dc.GetTextExtent(text)[0])
             for line in lines:
-                width = dc.GetTextExtent(line)[0]
-                x = max(0, (page_width - width) // 2) if row.get("align") == "center" else max(0, page_width - width) if row.get("align") == "right" else 0
+                text_width = dc.GetTextExtent(line)[0]
+                x = max(side_margin, (page_width - text_width) // 2) if row.get("align") == "center" else max(side_margin, page_width - side_margin - text_width) if row.get("align") == "right" else side_margin
                 dc.TextOut(x, y, line)
-                y += int(dpi_y * size / 72 * 1.45)
-            y += int(dpi_y * 0.025)
+                y += line_height
+            y += int(dpi_y * 0.25 / 25.4)
+
         dc.EndPage()
         end_result = dc.EndDoc()
         if end_result is not None and end_result <= 0:
             raise RuntimeError(f"Windows rejeitou o documento (retorno {end_result!r}).")
-        logger.info("Impressão via driver finalizada: job=%s", job.get("id"))
+        logger.info("Impressão via driver finalizada: job=%s, largura efetiva=%.1f mm", job.get("id"), width_mm)
     except Exception:
         logger.exception("Falha na impressão pelo driver: job=%s printer=%s", job.get("id"), printer_name)
         try:

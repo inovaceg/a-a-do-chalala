@@ -16,7 +16,7 @@ class DriverPrintTests(unittest.TestCase):
         self.dc = Mock()
         self.dc.GetDeviceCaps.side_effect = lambda cap: {10: 203, 11: 203, 8: 576}[cap]
         self.dc.GetTextExtent.return_value = (50, 10)
-        self.win32con = types.SimpleNamespace(LOGPIXELSX=10, LOGPIXELSY=11, HORZRES=8)
+        self.win32con = types.SimpleNamespace(LOGPIXELSX=10, LOGPIXELSY=11, HORZRES=8, ANTIALIASED_QUALITY=4)
         self.win32print = types.SimpleNamespace(
             PRINTER_ENUM_LOCAL=2,
             PRINTER_ENUM_CONNECTIONS=4,
@@ -41,6 +41,8 @@ class DriverPrintTests(unittest.TestCase):
             agent.print_with_driver(self.job, self.config)
         self.dc.StartDoc.assert_called_once()
         self.dc.EndDoc.assert_called_once()
+        self.assertGreaterEqual(self.dc.Rectangle.call_count, 2)
+        self.assertTrue(any(call.args[0].get("height", 0) >= int(203 * 22 / 72) for call in self.win32ui.CreateFont.call_args_list))
         self.dc.DeleteDC.assert_called_once()
 
     def test_nonpositive_driver_return_raises_and_releases_context(self):
@@ -95,6 +97,10 @@ class DriverPrintTests(unittest.TestCase):
         self.assertTrue(any("DADOS DA ENTREGA" in text for text in texts))
         self.assertTrue(any("REFERÊNCIA: Portaria do bloco 2" in text for text in texts))
         self.assertTrue(any(row.get("kind") == "product" and row["quantity"] == "2x" for row in rows))
+        self.assertTrue(any(row.get("text") == "AÇAÍ DO CHALALA" and row.get("size") == 22 and row.get("bold") for row in rows))
+        self.assertTrue(any(row.get("kind") == "highlight" and row.get("text") == "PEDIDO Nº 42" and row.get("size") == 18 for row in rows))
+        self.assertTrue(any(row.get("kind") == "total" and row.get("size") == 16 and row.get("bold") for row in rows))
+        self.assertTrue(any(row.get("text") == "São Benedito - Juiz de Fora/MG" and row.get("align") == "center" for row in rows))
         wrapped = agent.split_to_width("Produto com uma descrição extensa e sem cortes", 12, len)
         self.assertGreater(len(wrapped), 1)
         self.assertEqual("".join(wrapped).replace(" ", ""), "Produtocomumadescriçãoextensaesemcortes")
