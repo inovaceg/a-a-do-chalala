@@ -11,6 +11,7 @@ test.beforeEach(async () => {
   operator = created.account;
   cleanup = created.cleanup;
   verifySale = created.verifySale;
+  verifyPrintJobs = created.verifyPrintJobs;
 });
 
 test.afterEach(async () => {
@@ -57,5 +58,8 @@ test("operadora só acessa PDV e vendas e conclui uma venda com pagamento dividi
   expect(Number(persistedSale.total)).toBe(18);
   expect(persistedSale.sale_items).toEqual([{ product_name: "Açaí Tradicional" }]);
   expect(persistedSale.sale_payments).toHaveLength(2);
+  await expect.poll(async () => (await verifyPrintJobs()).length).toBe(1);
+  const printJobs = await verifyPrintJobs();
+  expect(printJobs[0].payload.title).toBe(`PEDIDO ${receiptNumber}`);
   await expect(receipt.getByRole("button", { name: "Imprimir / Salvar PDF" })).toBeVisible();
 });
