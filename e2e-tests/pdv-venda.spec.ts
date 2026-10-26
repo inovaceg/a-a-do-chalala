@@ -15,8 +15,14 @@ test("adiciona produto e conclui venda no PDV", async ({ page }) => {
   await expect(checkout.getByRole("heading", { name: "Pagamento e troco" })).toBeVisible();
   await checkout.getByRole("button", { name: "Adicionar forma" }).click();
   await checkout.getByLabel("Valor da forma 1").fill("10");
+  await checkout.getByLabel("Valor da forma 1").press("Enter");
+  await expect(checkout.getByLabel("Forma de pagamento 2")).toBeFocused();
+  await checkout.getByLabel("Forma de pagamento 2").press("Enter");
+  await expect(checkout.getByLabel("Valor da forma 2")).toBeFocused();
   await checkout.getByLabel("Valor da forma 2").fill("8");
-  await checkout.getByRole("button", { name: "Concluir venda" }).click();
+  await checkout.getByLabel("Valor da forma 2").press("Enter");
+  await expect(checkout.getByRole("button", { name: /Concluir venda/ })).toBeFocused();
+  await page.keyboard.press("F9");
   const receipt = page.getByRole("dialog");
   await expect(receipt.getByRole("heading", { name: "Comprovante não fiscal" })).toBeVisible();
   await expect(receipt.getByText("PIX", { exact: true })).toBeVisible();
