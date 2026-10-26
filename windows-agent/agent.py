@@ -1,10 +1,14 @@
 import json
+import logging
 import os
 import time
 from datetime import datetime
 from pathlib import Path
 
 import requests
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("acai_print_agent")
 
 FUNCTION_URL = "https://ppthiahwsqoiefwcbstg.supabase.co/functions/v1/print-bridge"
 PUBLISHABLE_KEY = "sb_publishable_dfqCLo8XzOi-9O5qkIhScw_fsm2UUdj"
@@ -82,6 +86,7 @@ def print_with_driver(job, config):
     import win32ui
 
     printer_name = config.get("printer_name", "Driver - Impressora Bematech MP-2800 TH")
+    logger.info("Iniciando impressão via driver Windows: job=%s printer=%s", job.get("id"), printer_name)
     printers = [printer[2] for printer in win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)]
     if printer_name not in printers:
         raise RuntimeError(f'Impressora "{printer_name}" não encontrada. Impressoras disponíveis: {", ".join(printers)}')
@@ -95,8 +100,11 @@ def print_with_driver(job, config):
     font_height = max(1, int(dpi_y * 9 / 72))
     line_height = int(font_height * 1.55)
     try:
-        if dc.StartDoc(f"Acai do Chalala - {job['id']}") <= 0:
-            raise RuntimeError("O Windows não conseguiu iniciar o documento de impressão.")
+        start_result = dc.StartDoc(f"Acai do Chalala - {job['id']}")
+        if start_result is not None and start_result <= 0:
+            raise RuntimeError(f"O Windows não conseguiu iniciar o documento de impressão (retorno {start_result!r}).")
+        if start_result is None:
+            logger.warning("StartDoc não retornou identificador; prosseguindo conforme ausência de exceção. job=%s", job.get("id"))
         dc.StartPage()
         y = int(dpi_y * 0.12)
         for index, text in enumerate(rows):
@@ -106,16 +114,24 @@ def print_with_driver(job, config):
             dc.TextOut(max(0, (page_width - width) // 2), y, text[:180])
             y += line_height
         dc.EndPage()
-        if dc.EndDoc() <= 0:
-            raise RuntimeError("O Windows rejeitou o documento ao finalizar a impressão.")
+        end_result = dc.EndDoc()
+        if end_result is not None and end_result <= 0:
+            raise RuntimeError(f"O Windows rejeitou o documento ao finalizar a impressão (retorno {end_result!r}).")
+        if end_result is None:
+            logger.warning("EndDoc não retornou código; chamada terminou sem exceção. job=%s", job.get("id"))
+        logger.info("Envio ao driver Windows concluído: job=%s start=%r end=%r", job.get("id"), start_result, end_result)
     except Exception:
+        logger.exception("Falha ao enviar job=%s para impressora=%s", job.get("id"), printer_name)
         try:
             dc.AbortDoc()
         except Exception:
-            pass
+            logger.exception("AbortDoc também falhou para job=%s", job.get("id"))
         raise
     finally:
-        dc.DeleteDC()
+        try:
+            dc.DeleteDC()
+        except Exception:
+            logger.exception("Falha ao liberar contexto de impressão job=%s", job.get("id"))
 
 
 def print_raw(job, config):
@@ -170,17 +186,19 @@ def main():
                 time.sleep(2)
                 continue
             try:
+                logger.info("Trabalho reservado: job=%s", job.get("id"))
                 process_job(job, config)
                 api(config, "complete", job["id"])
+                logger.info("Trabalho marcado como concluído: job=%s", job.get("id"))
             except Exception as error:
                 detail = str(error)
-                print(f"Erro no trabalho {job['id']}: {detail}")
+                logger.exception("Falha de impressão; trabalho não será concluído: job=%s", job.get("id"))
                 api(config, "error", job["id"], detail)
         except KeyboardInterrupt:
-            print("Agente encerrado.")
+            logger.info("Agente encerrado pelo operador.")
             break
-        except Exception as error:
-            print(f"Falha de conexão/processamento: {error}")
+        except Exception:
+            logger.exception("Falha de conexão ou processamento da fila.")
             time.sleep(5)
 
 
