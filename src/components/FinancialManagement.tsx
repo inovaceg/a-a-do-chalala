@@ -74,9 +74,10 @@ export default function FinancialManagement({ active }: { active: boolean }) {
     setExpenses((expenseData ?? []) as Expense[]);
     setProfiles(new Map((profileData ?? []).map(profile => [profile.id, profile.display_name])));
     const customs = (categoryData ?? []) as FinancialCategory[];
-    setCustomCategories(customs);
-    setExpenseCategories([...baseExpenseCategories, ...customs.filter(category => category.category_type === "expense").map(category => category.name)]);
-    setIncomeCategories([...baseIncomeCategories, ...customs.filter(category => category.category_type === "income").map(category => category.name)]);
+    const defaultCategories = [...baseExpenseCategories.map((name, index) => ({ id: `default-expense-${index}`, name, category_type: "expense" as const })), ...baseIncomeCategories.map((name, index) => ({ id: `default-income-${index}`, name, category_type: "income" as const }))];
+    setCustomCategories([...defaultCategories.filter(category => !customs.some(item => item.category_type === category.category_type && item.name === category.name)), ...customs]);
+    setExpenseCategories([...new Set([...baseExpenseCategories, ...customs.filter(category => category.category_type === "expense").map(category => category.name)])]);
+    setIncomeCategories([...new Set([...baseIncomeCategories, ...customs.filter(category => category.category_type === "income").map(category => category.name)])]);
     setLoading(false);
   }, [active, from, to]);
 
@@ -129,7 +130,8 @@ export default function FinancialManagement({ active }: { active: boolean }) {
     setSaving(true); setError("");
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setError("Sessão não encontrada."); setSaving(false); return; }
-    const result = editingCategory
+    const isDefaultCategory = editingCategory?.id.startsWith("default-") ?? false;
+    const result = editingCategory && !isDefaultCategory
       ? await supabase.from("financial_categories").update({ name }).eq("id", editingCategory.id).select("id").maybeSingle()
       : await supabase.from("financial_categories").insert({ category_type: categoryType, name, created_by: user.id }).select("id").maybeSingle();
     setSaving(false);
@@ -141,7 +143,7 @@ export default function FinancialManagement({ active }: { active: boolean }) {
       if (categoryType === "expense") setExpenses(current => current.map(expense => expense.category === editingCategory.name ? { ...expense, category: name } : expense));
       else setIndividualIncomes(current => current.map(income => income.category === editingCategory.name ? { ...income, category: name } : income));
     }
-    setCustomCategories(current => editingCategory ? current.map(category => category.id === editingCategory.id ? { ...category, name } : category) : [...current, { id: result.data.id, name, category_type: categoryType }]);
+    setCustomCategories(current => editingCategory && !isDefaultCategory ? current.map(category => category.id === editingCategory.id ? { ...category, name } : category) : [...current, { id: result.data.id, name, category_type: categoryType }]);
     if (categoryType === "expense") {
       setExpenseCategories(current => editingCategory ? current.map(item => item === editingCategory.name ? name : item) : [...current, name]);
       setForm(current => ({ ...current, category: editingCategory && current.category === editingCategory.name ? name : editingCategory ? current.category : name }));
