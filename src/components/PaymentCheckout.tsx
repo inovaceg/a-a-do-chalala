@@ -59,6 +59,7 @@ export default function PaymentCheckout({ total, onCancel, onComplete }: Props) 
     const hasCredit = lines.some(item => item.method === "Crediário" && item.amount > 0);
     if (Number(discountValue) > 0 && !approvedDiscount) return setError("Autorize a senha da administradora para aplicar o desconto.");
     if (paid < due) return setError("Os pagamentos informados não cobrem o total do pedido.");
+    if (paid > due && !needsChange) return setError("O total informado excede o valor da venda sem pagamento em dinheiro para troco.");
     if (hasCredit && (!customer.trim() || !dueDate)) return setError("Informe o cliente e o vencimento do crediário.");
     if (needsChange && (Number(change) < paid - due)) return setError("Informe o troco correto a devolver.");
     onComplete({ discount, payments: lines, change: Number(change) || 0, creditCustomer: customer.trim(), creditDueDate: dueDate });
