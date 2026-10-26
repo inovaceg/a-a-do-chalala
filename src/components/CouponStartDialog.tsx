@@ -4,7 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 import "./coupon-start-dialog.css";
 
 export type CouponCustomer = { id: string; name: string; whatsapp: string; street: string | null; address_number: string | null; neighborhood: string | null; city: string | null; address_complement: string | null; postal_code: string | null };
-export type CouponSelection = { customer: CouponCustomer | null; delivery: boolean; deliveryAddress: string };
+export type DeliveryCourier = { id: string; name: string; whatsapp: string };
+export type CouponSelection = { customer: CouponCustomer | null; delivery: boolean; deliveryAddress: string; courier: DeliveryCourier | null };
 type CustomerFields = Omit<CouponCustomer, "id">;
 type Props = { open: boolean; onCancel: () => void; onConfirm: (selection: CouponSelection) => void };
 const customerColumns = "id,name,whatsapp,street,address_number,neighborhood,city,address_complement,postal_code";
@@ -26,6 +27,9 @@ export default function CouponStartDialog({ open, onCancel, onConfirm }: Props) 
   const [nameMatches, setNameMatches] = useState<CouponCustomer[]>([]);
   const [whatsappMatches, setWhatsappMatches] = useState<CouponCustomer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<CouponCustomer | null>(null);
+  const [couriers, setCouriers] = useState<DeliveryCourier[]>([]);
+  const [selectedCourierId, setSelectedCourierId] = useState("");
+  const [couriersLoading, setCouriersLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -37,9 +41,67 @@ export default function CouponStartDialog({ open, onCancel, onConfirm }: Props) 
       setNameMatches([]);
       setWhatsappMatches([]);
       setSelectedCustomer(null);
+      setCouriers([]);
+      setSelectedCourierId("");
       setError("");
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !delivery) return;
+    let active = true;
+    setCouriersLoading(true);
+    supabase.from("couriers").select("id,name,whatsapp").eq("is_active", true).order("name").then(({ data, error: courierError }) => {
+      if (!active) return;
+      setCouriersLoading(false);
+      if (courierError) {
+        setError("Não foi possível carregar os motoboys disponíveis.");
+        setCouriers([]);
+        return;
+      }
+      setCouriers((data ?? []) as DeliveryCourier[]);
+      setError("");
+    });
+    return () => { active = false; };
+  }, [open, delivery]);
+
+  useEffect(() => {
+    document.querySelector(".coupon-courier-field")?.remove();
+    if (!open || !delivery) return;
+    const addressSection = document.querySelector(".coupon-address-section");
+    if (!addressSection) return;
+    const field = document.createElement("label");
+    field.className = "coupon-courier-field";
+    const title = document.createElement("span");
+    title.textContent = "Motoboy responsável";
+    const required = document.createElement("i");
+    required.textContent = "Obrigatório";
+    title.append(required);
+    const select = document.createElement("select");
+    select.required = true;
+    select.setAttribute("aria-label", "Motoboy responsável");
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = couriersLoading ? "Carregando motoboys…" : "Selecione um motoboy";
+    select.append(placeholder);
+    couriers.forEach(courier => {
+      const option = document.createElement("option");
+      option.value = courier.id;
+      option.textContent = `${courier.name} · ${courier.whatsapp}`;
+      select.append(option);
+    });
+    select.value = selectedCourierId;
+    select.disabled = couriersLoading || couriers.length === 0;
+    select.addEventListener("change", () => setSelectedCourierId(select.value));
+    field.append(title, select);
+    if (!couriersLoading && couriers.length === 0) {
+      const help = document.createElement("small");
+      help.textContent = "Cadastre um motoboy ativo em Cadastros para selecionar.";
+      field.append(help);
+    }
+    addressSection.before(field);
+    return () => field.remove();
+  }, [open, delivery, couriers, couriersLoading, selectedCourierId]);
 
   useEffect(() => {
     const term = fields.name.trim();
@@ -92,8 +154,13 @@ export default function CouponStartDialog({ open, onCancel, onConfirm }: Props) 
   const start = async (event: React.FormEvent) => {
     event.preventDefault();
     setError("");
+    const courier = delivery ? couriers.find(item => item.id === selectedCourierId) ?? null : null;
+    if (delivery && !courier) {
+      setError("Selecione um motoboy para este pedido delivery.");
+      return;
+    }
     if (anonymous) {
-      onConfirm({ customer: null, delivery, deliveryAddress: delivery ? fullAddress(fields) : "" });
+      onConfirm({ customer: null, delivery, deliveryAddress: delivery ? fullAddress(fields) : "", courier });
       return;
     }
     const name = fields.name.trim().toLocaleUpperCase("pt-BR");
@@ -114,7 +181,7 @@ export default function CouponStartDialog({ open, onCancel, onConfirm }: Props) 
       }
       const customer = data as CouponCustomer;
       setSaving(false);
-      onConfirm({ customer, delivery, deliveryAddress: delivery ? [customer.street, customer.address_number, customer.address_complement, customer.neighborhood, customer.city, customer.postal_code ? `CEP ${customer.postal_code}` : ""].filter(Boolean).join(", ") || fullAddress(fields) : "" });
+      onConfirm({ customer, delivery, deliveryAddress: delivery ? [customer.street, customer.address_number, customer.address_complement, customer.neighborhood, customer.city, customer.postal_code ? `CEP ${customer.postal_code}` : ""].filter(Boolean).join(", ") || fullAddress(fields) : "", courier });
       return;
     }
     const { data: existing, error: lookupError } = await supabase.from("customers").select(customerColumns).eq("whatsapp", whatsapp).limit(1).maybeSingle();
@@ -143,7 +210,7 @@ export default function CouponStartDialog({ open, onCancel, onConfirm }: Props) 
     }
     setSaving(false);
     const savedAddress = [customer.street, customer.address_number, customer.address_complement, customer.neighborhood, customer.city, customer.postal_code ? `CEP ${customer.postal_code}` : ""].filter(Boolean).join(", ");
-    onConfirm({ customer, delivery, deliveryAddress: delivery ? savedAddress || fullAddress(fields) : "" });
+    onConfirm({ customer, delivery, deliveryAddress: delivery ? savedAddress || fullAddress(fields) : "", courier });
   };
 
   return <div className="coupon-start-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !saving) onCancel(); }}><form className="coupon-start-dialog" onSubmit={start} role="dialog" aria-modal="true" aria-labelledby="coupon-start-title"><button type="button" className="coupon-start-close" onClick={onCancel} aria-label="Fechar" disabled={saving}><X size={18}/></button><span className="coupon-start-kicker">NOVO PEDIDO</span><h2 id="coupon-start-title">Identificação do cupom</h2><p>Preencha os dados do cliente ou escolha continuar sem identificação.</p><div className="coupon-start-options"><label className={`coupon-option ${!anonymous ? "coupon-option-active" : ""}`}><input type="radio" name="coupon-identity" checked={!anonymous} onChange={() => setAnonymous(false)}/><UserRound size={17}/><span>Identificar cliente</span></label><label className={`coupon-option ${anonymous ? "coupon-option-active" : ""}`}><input type="radio" name="coupon-identity" checked={anonymous} onChange={() => setAnonymous(true)}/><UserRoundX size={17}/><span>Cupom sem identificação</span></label></div>{!anonymous && <div className="coupon-customer-fields"><div className="coupon-whatsapp-search"><label>Nome do cliente <i>Obrigatório · digite para localizar</i><input autoFocus required maxLength={160} value={fields.name} onChange={event => updateField("name", event.target.value)} placeholder="NOME COMPLETO"/></label>{nameMatches.length > 0 && <div className="coupon-customer-matches" role="listbox" aria-label="Clientes encontrados pelo nome">{nameMatches.map(customer => <button type="button" key={customer.id} onClick={() => chooseCustomer(customer)}><Search size={13}/><span><b>{customer.name}</b><small>{customer.whatsapp}</small></span></button>)}</div>}</div><div className="coupon-whatsapp-search"><label>WhatsApp <i>Obrigatório · digite para localizar</i><input type="tel" required maxLength={30} value={fields.whatsapp} onChange={event => updateField("whatsapp", event.target.value)} placeholder="(32) 99999-9999"/></label>{whatsappMatches.length > 0 && <div className="coupon-customer-matches" role="listbox" aria-label="Clientes encontrados pelo WhatsApp">{whatsappMatches.map(customer => <button type="button" key={customer.id} onClick={() => chooseCustomer(customer)}><Search size={13}/><span><b>{customer.name}</b><small>{customer.whatsapp}</small></span></button>)}</div>}</div></div>}<label className="coupon-delivery-toggle"><input type="checkbox" checked={delivery} onChange={event => setDelivery(event.target.checked)}/><span className="coupon-delivery-icon"><MapPin size={17}/></span><span><b>Este pedido é delivery</b><small>Será contado no relatório diário de entregas.</small></span></label><section className="coupon-address-section"><header><MapPin size={15}/><b>Endereço para entrega</b><small>Opcional</small></header><div className="coupon-address-fields">{addressFields.map(field => <label className={field.key === "address_complement" ? "coupon-address-wide" : ""} key={field.key}>{field.label}<input maxLength={field.key === "postal_code" ? 12 : 160} value={fields[field.key] ?? ""} onChange={event => updateField(field.key, event.target.value)} placeholder={field.placeholder}/></label>)}</div></section>{error && <p className="coupon-start-error" role="alert">{error}</p>}<footer><button type="button" className="coupon-start-cancel" onClick={onCancel} disabled={saving}>Cancelar</button><button className="coupon-start-confirm" disabled={saving}><Check size={16}/>{saving ? "Salvando cliente…" : "Abrir cupom"}</button></footer></form></div>;
