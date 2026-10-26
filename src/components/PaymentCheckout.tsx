@@ -15,7 +15,6 @@ export default function PaymentCheckout({ total, saving = false, onCancel, onCom
   const [password, setPassword] = useState("");
   const [approvedDiscount, setApprovedDiscount] = useState(false);
   const [error, setError] = useState("");
-  const [change, setChange] = useState("");
   const [customer, setCustomer] = useState("");
   const [dueDate, setDueDate] = useState("");
   const dialogRef = useRef<HTMLElement>(null);
@@ -24,6 +23,7 @@ export default function PaymentCheckout({ total, saving = false, onCancel, onCom
   const due = Math.max(0, total - discount);
   const paid = useMemo(() => lines.reduce((sum, item) => sum + (Number(item.amount) || 0), 0), [lines]);
   const needsChange = lines.some(item => item.method === "Dinheiro") && paid > due;
+  const change = needsChange ? Math.round((paid - due) * 100) / 100 : 0;
   useEffect(() => {
     const handleKeys = (event: KeyboardEvent) => {
       if (event.key === "F9") {
@@ -63,8 +63,7 @@ export default function PaymentCheckout({ total, saving = false, onCancel, onCom
     if (paid < due) return setError("Os pagamentos informados não cobrem o total do pedido.");
     if (paid > due && !needsChange) return setError("O total informado excede o valor da venda sem pagamento em dinheiro para troco.");
     if (hasCredit && (!customer.trim() || !dueDate)) return setError("Informe o cliente e o vencimento do crediário.");
-    if (needsChange && (Number(change) < paid - due)) return setError("Informe o troco correto a devolver.");
-    onComplete({ discount, payments: lines, change: Number(change) || 0, creditCustomer: customer.trim().toLocaleUpperCase("pt-BR"), creditDueDate: dueDate });
+    onComplete({ discount, payments: lines, change, creditCustomer: customer.trim().toLocaleUpperCase("pt-BR"), creditDueDate: dueDate });
   };
 
   return <div className="modal-backdrop checkout-backdrop"><section ref={dialogRef} className="catalog-modal checkout-modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title">
@@ -75,8 +74,8 @@ export default function PaymentCheckout({ total, saving = false, onCancel, onCom
     <div className="payment-heading"><h3>Formas de pagamento</h3><button className="secondary-action" onClick={() => setLines(items => [...items, { method: "Pix", amount: 0 }])}><Plus size={14}/> Adicionar forma</button></div>
     <div className="payment-line-list">{lines.map((line, index) => <div className="payment-row" key={index}><select aria-label={`Forma de pagamento ${index + 1}`} value={line.method} onChange={e => setLines(items => items.map((item, i) => i === index ? { ...item, method: e.target.value as Method } : item))}><option>Dinheiro</option><option>Cartão de débito</option><option>Cartão de crédito</option><option>Pix</option><option>Vale alimentação</option><option>Crediário</option></select><label>Valor<input autoFocus={index === 0} aria-label={`Valor da forma ${index + 1}`} type="number" min="0" step="0.01" value={line.amount} onChange={e => setLines(items => items.map((item, i) => i === index ? { ...item, amount: Number(e.target.value) } : item))}/></label>{lines.length > 1 && <button className="remove-payment" onClick={() => setLines(items => items.filter((_, i) => i !== index))} aria-label="Remover forma de pagamento"><X size={15}/></button>}</div>)}</div>
     {lines.some(item => item.method === "Crediário") && <div className="credit-fields"><label>Cliente do crediário<input value={customer} onChange={e => setCustomer(e.target.value)} placeholder="Nome do cliente"/></label><label>Vencimento<input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)}/></label></div>}
-    {needsChange && <label className="change-field">Troco a devolver (R$)<input type="number" min="0" step="0.01" value={change} onChange={e => setChange(e.target.value)} placeholder={currency(paid - due)}/></label>}
-    <div className="checkout-total paid-total"><span>Total informado</span><b>{currency(paid)}</b></div>{error && <small className="discount-error">{error}</small>}
+    {needsChange && <div className="checkout-total change-total"><span>Troco a devolver</span><b>{currency(change)}</b></div>}
+    <div className="checkout-total paid-total"><span>Total informado</span><b>{currency(paid)}</b></div>{error && <small className="discount-error" role="alert">{error}</small>}
     <div className="checkout-shortcut">Pressione <kbd>Enter</kbd> para avançar pelos campos · <kbd>F9</kbd> para concluir a venda</div><div className="modal-actions"><button className="secondary-action" onClick={onCancel} disabled={saving}>Voltar ao pedido</button><button className="primary-button checkout-submit" onClick={finish} disabled={saving}><Check size={15}/> {saving ? "Registrando venda…" : "Concluir venda"} {!saving && <kbd>F9</kbd>}</button></div>
   </section></div>;
 }
