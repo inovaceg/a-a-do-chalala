@@ -16,7 +16,7 @@ const methods: PaymentMethod[] = ["Dinheiro", "Cartão de débito", "Cartão de 
 const money = (n: number) => Number(n).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const dateTime = (date: string) => new Date(date).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 
-export default function SalesManagement({ active }: { active: boolean }) {
+export default function SalesManagement({ active, role }: { active: boolean; role: "admin" | "operator" }) {
   const [sales, setSales] = useState<Sale[]>([]);
   const [reportTab, setReportTab] = useState<ReportType>("daily");
   const [products, setProducts] = useState<Product[]>([]);
@@ -34,8 +34,18 @@ export default function SalesManagement({ active }: { active: boolean }) {
   const loadSales = useCallback(async () => {
     setLoading(true);
     setError("");
+    let salesQuery = supabase.from("sales").select("id,receipt_number,total,subtotal,discount_amount,change_amount,status,created_at,credit_customer,credit_due_date,customer_id,customer_name,customer_whatsapp,courier_id,sale_items(id,product_id,product_name,quantity,unit_price,extras,line_total),sale_payments(id,method,amount)").order("created_at", { ascending: false }).limit(1000);
+    if (role === "operator") {
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        setError("Não foi possível identificar o operador da sessão.");
+        setLoading(false);
+        return;
+      }
+      salesQuery = salesQuery.eq("created_by", user.id);
+    }
     const [{ data, error: salesError }, { data: productData, error: productsError }, { data: courierData }] = await Promise.all([
-      supabase.from("sales").select("id,receipt_number,total,subtotal,discount_amount,change_amount,status,created_at,credit_customer,credit_due_date,customer_id,customer_name,customer_whatsapp,courier_id,sale_items(id,product_id,product_name,quantity,unit_price,extras,line_total),sale_payments(id,method,amount)").order("created_at", { ascending: false }).limit(1000),
+      salesQuery,
       supabase.from("products").select("id,name,price,extras").eq("is_active", true).order("name"),
       supabase.from("couriers").select("id,name").order("name"),
     ]);
@@ -44,7 +54,7 @@ export default function SalesManagement({ active }: { active: boolean }) {
     setSales(((data ?? []) as unknown as Sale[]).map(sale => ({ ...sale, courier_name: sale.courier_id ? courierNames.get(sale.courier_id) ?? "Motoboy não localizado" : "Sem motoboy" })));
     setProducts((productData ?? []) as Product[]);
     setLoading(false);
-  }, []);
+  }, [role]);
 
   useEffect(() => {
     if (active) void loadSales();
