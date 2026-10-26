@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Ban, Pencil, Plus, RefreshCw, X } from "lucide-react";
+import { Ban, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import SalesReportPanel, { SalesReportTabs, type ReportType } from "./SalesReportPanel";
 import "./sales-management.css";
@@ -11,6 +11,7 @@ type SaleItem = { id: string; product_id: string | null; product_name: string; q
 type PaymentMethod = "Dinheiro" | "Cartão de débito" | "Cartão de crédito" | "Pix" | "Vale alimentação" | "Crediário";
 type SalePayment = { id: string; method: PaymentMethod; amount: number };
 type Sale = { id: string; receipt_number: string; total: number; subtotal: number; discount_amount: number; change_amount: number; status: "completed" | "cancelled"; created_at: string; credit_customer: string | null; credit_due_date: string | null; customer_id: string | null; customer_name: string | null; customer_whatsapp: string | null; courier_id: string | null; courier_name?: string; sale_items: SaleItem[]; sale_payments: SalePayment[] };
+type DeletionAudit = { id: string; sale_id: string; receipt_number: string; total: number; sale_status: "completed" | "cancelled"; deleted_by_name: string; deleted_by_email: string; deleted_at: string };
 type EditItem = { key: string; productId: string; quantity: number; extras: Extra[] };
 type EditPayment = { key: string; method: PaymentMethod; amount: number };
 const methods: PaymentMethod[] = ["Dinheiro", "Cartão de débito", "Cartão de crédito", "Pix", "Vale alimentação", "Crediário"];
@@ -19,6 +20,8 @@ const dateTime = (date: string) => new Date(date).toLocaleString("pt-BR", { date
 
 export default function SalesManagement({ active, role }: { active: boolean; role: "admin" | "operator" }) {
   const [sales, setSales] = useState<Sale[]>([]);
+  const [deletionAudit, setDeletionAudit] = useState<DeletionAudit[]>([]);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [reportTab, setReportTab] = useState<ReportType>("daily");
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,9 +53,13 @@ export default function SalesManagement({ active, role }: { active: boolean; rol
       supabase.from("products").select("id,name,price,extras").eq("is_active", true).order("name"),
       supabase.from("couriers").select("id,name").order("name"),
     ]);
-    if (salesError || productsError) setError("Não foi possível carregar as vendas. Tente novamente.");
+    const { data: auditData, error: auditError } = role === "admin"
+      ? await supabase.from("sales_deletion_audit").select("id,sale_id,receipt_number,total,sale_status,deleted_by_name,deleted_by_email,deleted_at").order("deleted_at", { ascending: false }).limit(500)
+      : { data: [], error: null };
+    if (salesError || productsError || auditError) setError("Não foi possível carregar todas as informações de vendas. Tente novamente.");
     const courierNames = new Map((courierData ?? []).map(courier => [courier.id, courier.name]));
     setSales(((data ?? []) as unknown as Sale[]).map(sale => ({ ...sale, courier_name: sale.courier_id ? courierNames.get(sale.courier_id) ?? "Motoboy não localizado" : "Sem motoboy" })));
+    setDeletionAudit((auditData ?? []) as DeletionAudit[]);
     setProducts((productData ?? []) as Product[]);
     setLoading(false);
   }, [role]);
@@ -107,6 +114,21 @@ export default function SalesManagement({ active, role }: { active: boolean; rol
     await loadSales();
   };
 
+  const deleteSale = async (sale: Sale) => {
+    if (role !== "admin" || !window.confirm(`Excluir permanentemente a venda ${sale.receipt_number} no valor de ${money(sale.total)}? Essa ação não pode ser desfeita. O registro de auditoria será mantido.`)) return;
+    setDeleting(sale.id);
+    setError("");
+    const { error: deleteError } = await supabase.rpc("delete_sale_with_audit", { p_sale_id: sale.id });
+    if (deleteError) {
+      setError(deleteError.message || "Não foi possível excluir a venda.");
+      setDeleting(null);
+      return;
+    }
+    setNotice(`Venda ${sale.receipt_number} excluída. A operação foi registrada no histórico.`);
+    await loadSales();
+    setDeleting(null);
+  };
+
   if (!active) return null;
 
   return <div className={`sales-screen ${role === "operator" ? "operator-sales-view" : ""}`}>
@@ -115,7 +137,7 @@ export default function SalesManagement({ active, role }: { active: boolean; rol
       {notice && <div className="sales-notice">{notice}<button onClick={() => setNotice("")} aria-label="Fechar aviso"><X size={14}/></button></div>}
       {error && !editing && <div className="sales-error" role="alert">{error}</div>}
       <SalesReportTabs value={reportTab} onChange={setReportTab}/>
-      {loading ? <div className="sales-empty">Carregando vendas…</div> : reportTab !== "daily" ? <SalesReportPanel report={reportTab} sales={sales}/> : <><SalesReportPanel report="daily" sales={sales}/><h3 className="sales-history-subheading">Detalhamento das vendas</h3>{sales.length === 0 ? <div className="sales-empty"><strong>Nenhuma venda registrada ainda</strong><span>As vendas concluídas no PDV aparecerão aqui.</span></div> : <div className="sales-table-wrap"><table className="sales-table"><thead><tr><th>Venda</th><th>Data e hora</th><th>Itens</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead><tbody>{sales.map(sale => <tr key={sale.id}><td><b className="order-id">#{sale.receipt_number}</b></td><td>{dateTime(sale.created_at)}</td><td><div className="sales-items-summary">{sale.sale_items.map(item => <span key={item.id}>{item.quantity}× {item.product_name}</span>)}</div></td><td className="amount">{money(sale.total)}</td><td><span className={`sales-status ${sale.status}`}>{sale.status === "completed" ? "Concluída" : "Cancelada"}</span></td><td><div className="sales-actions"><button onClick={() => startEdit(sale)} disabled={sale.status !== "completed"} aria-label={`Editar venda ${sale.receipt_number}`}><Pencil size={15}/> Editar</button><button className="sales-cancel" onClick={() => void cancelSale(sale)} disabled={sale.status !== "completed"} aria-label={`Cancelar venda ${sale.receipt_number}`}><Ban size={15}/> Cancelar</button></div></td></tr>)}</tbody></table></div>}</>}
+      {loading ? <div className="sales-empty">Carregando vendas…</div> : reportTab !== "daily" ? <SalesReportPanel report={reportTab} sales={sales}/> : <><SalesReportPanel report="daily" sales={sales}/><h3 className="sales-history-subheading">Detalhamento das vendas</h3>{sales.length === 0 ? <div className="sales-empty"><strong>Nenhuma venda registrada ainda</strong><span>As vendas concluídas no PDV aparecerão aqui.</span></div> : <div className="sales-table-wrap"><table className="sales-table"><thead><tr><th>Venda</th><th>Data e hora</th><th>Itens</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead><tbody>{sales.map(sale => <tr key={sale.id}><td><b className="order-id">#{sale.receipt_number}</b></td><td>{dateTime(sale.created_at)}</td><td><div className="sales-items-summary">{sale.sale_items.map(item => <span key={item.id}>{item.quantity}× {item.product_name}</span>)}</div></td><td className="amount">{money(sale.total)}</td><td><span className={`sales-status ${sale.status}`}>{sale.status === "completed" ? "Concluída" : "Cancelada"}</span></td><td><div className="sales-actions"><button onClick={() => startEdit(sale)} disabled={sale.status !== "completed"} aria-label={`Editar venda ${sale.receipt_number}`}><Pencil size={15}/> Editar</button><button className="sales-cancel" onClick={() => void cancelSale(sale)} disabled={sale.status !== "completed"} aria-label={`Cancelar venda ${sale.receipt_number}`}><Ban size={15}/> Cancelar</button>{role === "admin" && <button className="sales-delete" onClick={() => void deleteSale(sale)} disabled={deleting === sale.id} aria-label={`Excluir venda ${sale.receipt_number}`}><Trash2 size={15}/> {deleting === sale.id ? "Excluindo…" : "Excluir"}</button>}</div></td></tr>)}</tbody></table></div>}{role === "admin" && <section className="sales-audit-panel"><h3>Histórico de vendas excluídas</h3><p>Registro permanente das exclusões realizadas por administradores.</p>{deletionAudit.length === 0 ? <div className="sales-empty">Nenhuma venda excluída registrada.</div> : <div className="sales-table-wrap"><table className="sales-table"><thead><tr><th>Venda</th><th>Valor</th><th>Status anterior</th><th>Excluída por</th><th>Data e hora</th></tr></thead><tbody>{deletionAudit.map(entry => <tr key={entry.id}><td><b className="order-id">#{entry.receipt_number}</b></td><td className="amount">{money(Number(entry.total))}</td><td>{entry.sale_status === "completed" ? "Concluída" : "Cancelada"}</td><td>{entry.deleted_by_name}<small className="sales-audit-email">{entry.deleted_by_email}</small></td><td>{dateTime(entry.deleted_at)}</td></tr>)}</tbody></table></div>}</section>}</>}
     </section>
 
     {editing && <div className="modal-backdrop sales-edit-backdrop"><form className="catalog-modal sales-edit-modal" onSubmit={saveEdit}><button type="button" className="modal-close" onClick={() => setEditing(null)} aria-label="Fechar"><X size={18}/></button><div className="modal-kicker">EDIÇÃO DA VENDA · {editing.receipt_number}</div><h2>Editar produtos e pagamentos</h2><p>Os preços serão recalculados pelo catálogo atual.</p><div className="sales-edit-lines"><div className="sales-edit-line-head"><span>Produto</span><span>Qtd.</span><span>Valor</span><span/></div>{items.map((item, index) => { const product = productById.get(item.productId); const lineTotal = product ? (Number(product.price) + item.extras.reduce((sum, extra) => sum + Number(extra.price), 0)) * item.quantity : 0; return <div className="sales-edit-line" key={item.key}><select aria-label={`Produto ${index + 1}`} required value={item.productId} onChange={event => setItems(current => current.map((line, lineIndex) => lineIndex === index ? { ...line, productId: event.target.value, extras: [] } : line))}><option value="">Selecione produto</option>{products.map(option => <option key={option.id} value={option.id}>{option.name} · {money(option.price)}</option>)}</select><input aria-label={`Quantidade ${index + 1}`} type="number" min="1" step="1" required value={item.quantity} onChange={event => setItems(current => current.map((line, lineIndex) => lineIndex === index ? { ...line, quantity: Math.max(1, Number(event.target.value)) } : line))}/><b>{money(lineTotal)}</b><button type="button" className="sales-remove-line" onClick={() => setItems(current => current.filter((_, lineIndex) => lineIndex !== index))} aria-label="Remover item"><X size={15}/></button></div>; })}</div><button type="button" className="secondary-action sales-add-line" onClick={() => setItems(current => [...current, { key: crypto.randomUUID(), productId: "", quantity: 1, extras: [] }])}><Plus size={15}/> Adicionar produto</button><div className="sales-payment-edit"><div className="payment-heading"><h3>Pagamentos</h3><button type="button" className="secondary-action" onClick={() => setPayments(current => [...current, { key: crypto.randomUUID(), method: "Pix", amount: 0 }])}><Plus size={14}/> Adicionar pagamento</button></div>{payments.map((payment, index) => <div className="sales-payment-row" key={payment.key}><select aria-label={`Pagamento ${index + 1}`} value={payment.method} onChange={event => setPayments(current => current.map((line, lineIndex) => lineIndex === index ? { ...line, method: event.target.value as PaymentMethod } : line))}>{methods.map(method => <option key={method}>{method}</option>)}</select><input aria-label={`Valor do pagamento ${index + 1}`} type="number" min="0" step="0.01" required value={payment.amount} onChange={event => setPayments(current => current.map((line, lineIndex) => lineIndex === index ? { ...line, amount: Number(event.target.value) } : line))}/><button type="button" className="sales-remove-line" onClick={() => setPayments(current => current.filter((_, lineIndex) => lineIndex !== index))} aria-label="Remover pagamento"><X size={15}/></button></div>)}</div>{payments.some(payment => payment.method === "Crediário") && <div className="credit-fields"><label>Cliente do crediário<input value={creditCustomer} onChange={event => setCreditCustomer(event.target.value)}/></label><label>Vencimento<input type="date" value={creditDueDate} onChange={event => setCreditDueDate(event.target.value)}/></label></div>}{payments.some(payment => payment.method === "Dinheiro") && <label className="change-field">Troco a devolver<input type="number" min="0" step="0.01" value={changeAmount} onChange={event => setChangeAmount(event.target.value)}/></label>}<div className="sales-edit-total"><span>Total atualizado</span><b>{money(editTotal)}</b></div>{error && <small className="discount-error" role="alert">{error}</small>}<div className="modal-actions"><button type="button" className="secondary-action" onClick={() => setEditing(null)} disabled={saving}>Voltar</button><button className="primary-button" disabled={saving || items.length === 0 || payments.length === 0}>{saving ? "Salvando…" : "Salvar alterações"}</button></div></form></div>}
