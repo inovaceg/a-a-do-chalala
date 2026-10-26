@@ -65,6 +65,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   const [cashSession, setCashSession] = useState<{ id: string; register_id: string } | null>(null);
   const [checkoutSaving, setCheckoutSaving] = useState(false);
   useEffect(() => {
+    document.querySelector<HTMLElement>(".help-card b")!.textContent = "Precisa de suporte para o sistema?";
     document.querySelector<HTMLAnchorElement>(".help-card a")?.setAttribute("href", "https://wa.me/5532984022567");
   }, []);
   useEffect(() => {
