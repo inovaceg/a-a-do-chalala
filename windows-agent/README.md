@@ -22,16 +22,18 @@ Set-ExecutionPolicy -Scope Process Bypass
 & "C:\ImpressaoAcai\.venv\Scripts\python.exe" "C:\ImpressaoAcai\agent.py"
 ```
 
-Os trabalhos de teste são salvos em `C:\ImpressaoAcai\Testes` como PDF, sem imprimir papel.
+Os trabalhos de teste são salvos automaticamente em `C:\ImpressaoAcai\Testes` como PDF de bobina, sem abrir uma janela de salvamento e sem imprimir papel. Configure a largura com `-PaperWidthMm 58` ou `-PaperWidthMm 80`; a altura do documento é calculada a partir do conteúdo.
 
 ## Produção: driver Windows (recomendado)
 
-Feche o agente que estiver aberto e instale/atualize com o nome exato da impressora:
+Feche o agente que estiver aberto e instale/atualize com o nome exato da impressora. A largura pode ser configurada como 80 mm (padrão) ou 58 mm:
 
 ```powershell
-.\install-agent.ps1 -Mode production -PrintMethod windows -PrinterName "Driver - Impressora Bematech MP-2800 TH"
+.\install-agent.ps1 -Mode production -PrintMethod windows -PrinterName "Driver - Impressora Bematech MP-2800 TH" -PaperWidthMm 80
 & "C:\ImpressaoAcai\.venv\Scripts\python.exe" "C:\ImpressaoAcai\agent.py"
 ```
+
+Use `-PaperWidthMm 58` para bobina de 58 mm. Em produção, o agente limita o layout à largura configurada e à área imprimível que o driver reporta.
 
 Esse método desenha o cupom com GDI do Windows e o envia ao driver selecionado; não envia ESC/POS RAW. O agente consulta `HORZRES` e o DPI do contexto de impressão para medir a largura útil, centraliza o cabeçalho, destaca pedido/tipo/total e quebra descrições conforme a largura real. Confirme que o formulário da bobina está configurado nas preferências do driver.
 

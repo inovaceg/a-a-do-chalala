@@ -26,6 +26,9 @@ def load_config():
         raise RuntimeError('mode deve ser "test" ou "production".')
     if config.get("print_method", "windows") not in ("windows", "raw"):
         raise RuntimeError('print_method deve ser "windows" ou "raw".')
+    config.setdefault("paper_width_mm", 80)
+    if config["paper_width_mm"] not in (58, 80):
+        raise RuntimeError("paper_width_mm deve ser 58 ou 80.")
     return config
 
 
@@ -175,73 +178,115 @@ def split_to_width(text, max_width, measure):
     return result or [""]
 
 
-def make_test_pdf(job):
+def make_test_pdf(job, config=None):
     from reportlab.lib.units import mm
-    from reportlab.lib.utils import simpleSplit
+    from reportlab.pdfbase.pdfmetrics import stringWidth
     from reportlab.pdfgen import canvas
 
     TEST_DIR.mkdir(parents=True, exist_ok=True)
     output = TEST_DIR / f"{job['id']}.pdf"
-    rows = receipt_rows(job)
-    width, margin = 80 * mm, 3 * mm
+    width_mm = (config or {}).get("paper_width_mm", 80)
+    width = width_mm * mm
+    margin = 3 * mm if width_mm == 80 else 2.5 * mm
+    content_width = width - 2 * margin
     prepared = []
-    for row in rows:
-        if row["kind"] == "divider":
-            from reportlab.pdfbase.pdfmetrics import stringWidth
-            dash_width = max(0.1, stringWidth("-", "Helvetica", 7))
-            prepared.append((row, "-" * max(1, int((width - 2 * margin) / dash_width)), 7))
-        elif row["kind"] == "product":
-            font = "Helvetica-Bold"
-            size = row["size"]
-            description = simpleSplit(row["description"], font, size, width - 31 * mm)
-            prepared.append((row, description, size))
+    for row in receipt_rows(job):
+        kind = row["kind"]
+        font = "Helvetica-Bold" if row.get("bold") or kind in ("product", "section", "highlight", "total") else "Helvetica-Oblique" if row.get("italic") else "Helvetica"
+        size = 7 if kind == "divider" else row.get("size", 8)
+        if kind == "divider":
+            dash_width = max(1, stringWidth("-", font, size))
+            lines = ["-" * max(1, int(content_width / dash_width))]
+        elif kind == "product":
+            value_width = stringWidth(row["value"], font, size)
+            quantity_width = stringWidth(row["quantity"], font, size) + 2 * mm
+            description_width = max(10 * mm, content_width - quantity_width - value_width - 2 * mm)
+            lines = wrap_to_width(row["description"], description_width, font, size)
         else:
-            font = "Helvetica-Bold" if row.get("bold") else "Helvetica-Oblique" if row.get("italic") else "Helvetica"
-            size = row.get("size", 8)
-            prepared.append((row, simpleSplit(row["text"], font, size, width - 2 * margin), size))
-    height = max(45 * mm, (sum((len(value) if isinstance(value, list) else 1) * (size * 1.45 + 1.5) for _, value, size in prepared) + 12) * mm / 2.83465)
-    pdf = canvas.Canvas(str(output), pagesize=(width, height))
-    y = height - margin
-    for row, value, size in prepared:
-        if row["kind"] == "divider":
-            pdf.setFont("Helvetica", size)
-            pdf.drawCentredString(width / 2, y, value)
-        elif row["kind"] == "product":
-            pdf.setFont("Helvetica-Bold", size)
-            lines = value
-            pdf.drawString(margin, y, row["quantity"])
-            for index, line in enumerate(lines):
-                pdf.drawString(margin + 9 * mm, y - index * (size * 1.45 + 1.5), line)
-            pdf.drawRightString(width - margin, y, row["value"])
-            y -= max(1, len(lines)) * (size * 1.45 + 1.5)
+            lines = wrap_to_width(row.get("text", ""), content_width - (2 * mm if kind in ("highlight", "total") else 0), font, size)
+        leading = size * 1.3 + 1
+        prepared.append((row, lines, font, size, leading))
+    top_bottom = 5 * mm
+    gap = 1.5 * mm
+    height = top_bottom * 2 + sum(max(1, len(lines)) * leading + gap for _, lines, _, _, leading in prepared)
+    pdf = canvas.Canvas(str(output), pagesize=(width, height), pageCompression=1)
+    pdf.setTitle(f"Comprovante {job['id']}")
+    y = height - top_bottom
+    for row, lines, font, size, leading in prepared:
+        kind = row["kind"]
+        if kind in ("highlight", "total"):
+            block_height = len(lines) * leading + 2 * mm
+            pdf.setLineWidth(0.7)
+            pdf.roundRect(margin, y - block_height + 1.5 * mm, content_width, block_height, 1.2 * mm, stroke=1, fill=0)
+            baseline = y - 1.5 * mm - size
+            pdf.setFont(font, size)
+            for line in lines:
+                pdf.drawCentredString(width / 2, baseline, line)
+                baseline -= leading
+            y -= block_height + gap
             continue
-        elif row["kind"] in ("highlight", "total"):
-            block_height = (len(value) if isinstance(value, list) else 1) * (size * 1.45 + 1.5)
-            pdf.rect(margin, y - block_height + 2, width - 2 * margin, block_height)
-            pdf.setFont("Helvetica-Bold", size)
-            for index, line in enumerate(value):
-                pdf.drawCentredString(width / 2, y - index * (size * 1.45 + 1.5), line)
-            y -= block_height + 3
-            continue
-        elif row["kind"] == "section":
-            pdf.setFont("Helvetica-Bold", size)
-            pdf.drawString(margin, y, row["text"])
+        pdf.setFont(font, size)
+        if kind == "divider":
+            pdf.setLineWidth(0.45)
+            pdf.setDash(2, 1.5)
             pdf.line(margin, y - 2, width - margin, y - 2)
-            y -= size * 1.45 + 3
+            pdf.setDash()
+            y -= leading + gap
             continue
-        else:
-            pdf.setFont("Helvetica-Bold" if row.get("bold") else "Helvetica-Oblique" if row.get("italic") else "Helvetica", size)
-            for index, line in enumerate(value):
-                line_y = y - index * (size * 1.45 + 1.5)
-                if row.get("align") == "center":
-                    pdf.drawCentredString(width / 2, line_y, line)
-                elif row.get("align") == "right":
-                    pdf.drawRightString(width - margin, line_y, line)
-                else:
-                    pdf.drawString(margin, line_y, line)
-        y -= (len(value) if isinstance(value, list) else 1) * (size * 1.45 + 1.5)
+        if kind == "section":
+            pdf.drawString(margin, y - size, lines[0])
+            y -= leading
+            pdf.setLineWidth(0.45)
+            pdf.line(margin, y, width - margin, y)
+            y -= gap
+            continue
+        if kind == "product":
+            pdf.drawString(margin, y - size, row["quantity"])
+            pdf.drawRightString(width - margin, y - size, row["value"])
+            for line in lines:
+                pdf.drawString(margin + 9 * mm, y - size, line)
+                y -= leading
+            y -= gap
+            continue
+        for line in lines:
+            baseline = y - size
+            if row.get("align") == "center":
+                pdf.drawCentredString(width / 2, baseline, line)
+            elif row.get("align") == "right":
+                pdf.drawRightString(width - margin, baseline, line)
+            else:
+                pdf.drawString(margin, baseline, line)
+            y -= leading
+        y -= gap
     pdf.save()
     return output
+
+
+def wrap_to_width(text, max_width, font, size):
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    lines = []
+    for source_line in str(text).splitlines() or [""]:
+        words = source_line.split()
+        line = ""
+        for word in words:
+            candidate = f"{line} {word}".strip()
+            if stringWidth(candidate, font, size) <= max_width:
+                line = candidate
+                continue
+            if line:
+                lines.append(line)
+                line = ""
+            while stringWidth(word, font, size) > max_width:
+                cut = 1
+                while cut < len(word) and stringWidth(word[:cut + 1], font, size) <= max_width:
+                    cut += 1
+                lines.append(word[:cut])
+                word = word[cut:]
+            line = word
+        if line:
+            lines.append(line)
+    return lines or [""]
 
 
 def print_with_driver(job, config):
@@ -263,11 +308,14 @@ def print_with_driver(job, config):
     if dpi_x <= 0 or dpi_y <= 0 or page_width <= 0:
         dc.DeleteDC()
         raise RuntimeError(f"O driver retornou dimensões imprimíveis inválidas: largura={page_width}, dpi={dpi_x}x{dpi_y}.")
-    width_mm = page_width * 25.4 / dpi_x
-    side_margin = max(1, int(dpi_x * 0.8 / 25.4))
-    printable_width = page_width - 2 * side_margin
+    driver_width_mm = page_width * 25.4 / dpi_x
+    configured_width = config.get("paper_width_mm", 80)
+    paper_width = min(page_width, int(dpi_x * configured_width / 25.4))
+    page_left = (page_width - paper_width) // 2
+    side_margin = max(1, int(dpi_x * 1.5 / 25.4))
+    printable_width = paper_width - 2 * side_margin
     rows = receipt_rows(job)
-    logger.info("Área imprimível reportada pelo driver: %.1f mm (%s dots), resolução %s x %s dpi", width_mm, page_width, dpi_x, dpi_y)
+    logger.info("Largura real do driver %.1f mm; layout configurado em %s mm; resolução %s x %s dpi", driver_width_mm, configured_width, dpi_x, dpi_y)
 
     def select_font(row):
         size = row.get("size", 8)
@@ -275,9 +323,9 @@ def print_with_driver(job, config):
         dc.SelectObject(font)
         return size
 
-    def draw_centered(text, y, width=printable_width):
+    def draw_centered(text, y):
         text_width = dc.GetTextExtent(text)[0]
-        dc.TextOut(max(side_margin, (page_width - text_width) // 2), y, text)
+        dc.TextOut(page_left + max(side_margin, (paper_width - text_width) // 2), y, text)
 
     def draw_rule(y):
         rule_font = win32ui.CreateFont({"name": "Arial", "height": max(1, int(dpi_y * 6 / 72))})
@@ -305,7 +353,7 @@ def print_with_driver(job, config):
                 lines = split_to_width(row["text"], printable_width - int(dpi_x * 3 / 25.4), lambda text: dc.GetTextExtent(text)[0])
                 padding_y = max(2, int(dpi_y * 0.7 / 25.4))
                 box_height = len(lines) * line_height + 2 * padding_y
-                dc.Rectangle((side_margin, y, page_width - side_margin, y + box_height))
+                dc.Rectangle((page_left + side_margin, y, page_left + paper_width - side_margin, y + box_height))
                 for index, line in enumerate(lines):
                     draw_centered(line, y + padding_y + index * line_height)
                 y += box_height + int(dpi_y * (0.8 if kind == "total" else 0.45) / 25.4)
@@ -315,11 +363,11 @@ def print_with_driver(job, config):
                 value = row["value"]
                 quantity_col = max(dc.GetTextExtent(quantity)[0] + int(dpi_x * 1.5 / 25.4), int(printable_width * 0.11))
                 value_width = dc.GetTextExtent(value)[0]
-                description_x = side_margin + quantity_col + int(dpi_x * 1.0 / 25.4)
-                value_x = page_width - side_margin - value_width
+                description_x = page_left + side_margin + quantity_col + int(dpi_x * 1.0 / 25.4)
+                value_x = page_left + paper_width - side_margin - value_width
                 description_width = max(1, value_x - description_x - int(dpi_x * 1.0 / 25.4))
                 lines = split_to_width(row["description"], description_width, lambda text: dc.GetTextExtent(text)[0])
-                dc.TextOut(side_margin, y, quantity)
+                dc.TextOut(page_left + side_margin, y, quantity)
                 dc.TextOut(max(description_x, value_x), y, value)
                 for index, line in enumerate(lines):
                     dc.TextOut(description_x, y + index * line_height, line)
@@ -328,7 +376,7 @@ def print_with_driver(job, config):
             lines = split_to_width(row["text"], printable_width, lambda text: dc.GetTextExtent(text)[0])
             for line in lines:
                 text_width = dc.GetTextExtent(line)[0]
-                x = max(side_margin, (page_width - text_width) // 2) if row.get("align") == "center" else max(side_margin, page_width - side_margin - text_width) if row.get("align") == "right" else side_margin
+                x = page_left + max(side_margin, (paper_width - text_width) // 2) if row.get("align") == "center" else page_left + max(side_margin, paper_width - side_margin - text_width) if row.get("align") == "right" else page_left + side_margin
                 dc.TextOut(x, y, line)
                 y += line_height
             y += int(dpi_y * 0.25 / 25.4)
@@ -337,7 +385,7 @@ def print_with_driver(job, config):
         end_result = dc.EndDoc()
         if end_result is not None and end_result <= 0:
             raise RuntimeError(f"Windows rejeitou o documento (retorno {end_result!r}).")
-        logger.info("Impressão via driver finalizada: job=%s, largura efetiva=%.1f mm", job.get("id"), width_mm)
+        logger.info("Impressão via driver finalizada: job=%s, largura efetiva=%.1f mm", job.get("id"), paper_width * 25.4 / dpi_x)
     except Exception:
         logger.exception("Falha na impressão pelo driver: job=%s printer=%s", job.get("id"), printer_name)
         try:
@@ -381,8 +429,8 @@ def print_raw(job, config):
 
 def process_job(job, config):
     if config["mode"] == "test":
-        path = make_test_pdf(job)
-        logger.info("PDF de teste criado: %s", path)
+        path = make_test_pdf(job, config)
+        logger.info("PDF térmico de teste criado: %s", path)
     elif config.get("print_method", "windows") == "raw":
         print_raw(job, config)
         logger.info("Trabalho enviado em RAW: %s", job["id"])

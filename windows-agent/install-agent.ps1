@@ -2,7 +2,8 @@ param(
     [string]$AgentToken,
     [ValidateSet("test", "production")][string]$Mode = "test",
     [string]$PrinterName = "Driver - Impressora Bematech MP-2800 TH",
-    [ValidateSet("windows", "raw")][string]$PrintMethod = "windows"
+    [ValidateSet("windows", "raw")][string]$PrintMethod = "windows",
+    [ValidateSet(58, 80)][int]$PaperWidthMm = 80
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,6 +36,7 @@ $Config = @{
     mode = $Mode
     printer_name = $PrinterName
     print_method = $PrintMethod
+    paper_width_mm = $PaperWidthMm
 } | ConvertTo-Json
 Set-Content -Path $ConfigPath -Value $Config -Encoding UTF8
 

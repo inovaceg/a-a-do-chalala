@@ -114,6 +114,33 @@ class DriverPrintTests(unittest.TestCase):
         self.assertIn("CLIENTE: CLIENTE", texts)
         self.assertNotIn("DADOS DA ENTREGA", texts)
 
+    def test_pickup_and_counter_are_distinguished_in_receipt_rows(self):
+        for order_type in ("RETIRADA", "BALCÃO"):
+            with self.subTest(order_type=order_type):
+                rows = agent.receipt_rows({"id": order_type, "payload": {"receipt": {"orderNumber": "123", "orderType": order_type, "products": []}}})
+                self.assertIn(f"TIPO: {order_type}", [row.get("text") for row in rows])
+
+    def test_test_pdf_has_thermal_width_and_content_dependent_height(self):
+        import re
+        import tempfile
+
+        base_receipt = {"orderNumber": "321", "orderType": "RETIRADA", "products": [{"name": "Açaí especial", "quantity": 1, "line_total": 20, "extras": [{"name": "Leite Ninho", "price": 3}]}], "total": 23}
+        large_receipt = {**base_receipt, "orderType": "DELIVERY", "customer": "Cliente com nome longo", "deliveryAddress": "Rua muito comprida, número 123, complemento bloco A apartamento 45", "products": base_receipt["products"] * 8}
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(agent, "TEST_DIR", Path(directory)):
+                small_path = agent.make_test_pdf({"id": "small", "payload": {"receipt": base_receipt}}, {"paper_width_mm": 58})
+                large_path = agent.make_test_pdf({"id": "large", "payload": {"receipt": large_receipt}}, {"paper_width_mm": 80})
+            def dimensions(path):
+                match = re.search(rb"/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]", path.read_bytes())
+                self.assertIsNotNone(match)
+                return tuple(float(value) for value in match.groups())
+            small_width, small_height = dimensions(small_path)
+            large_width, large_height = dimensions(large_path)
+            self.assertAlmostEqual(small_width, 58 * 72 / 25.4, delta=0.1)
+            self.assertAlmostEqual(large_width, 80 * 72 / 25.4, delta=0.1)
+            self.assertGreater(large_height, small_height)
+            self.assertLess(large_height, 1000)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
