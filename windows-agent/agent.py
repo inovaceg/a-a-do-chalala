@@ -73,7 +73,15 @@ def receipt_rows(job):
         {"kind": "highlight", "text": f"TIPO: {receipt.get('orderType') or ('DELIVERY' if receipt.get('delivery') else 'BALCÃO')}", "align": "center", "size": 12, "bold": True},
     ]
 
-    if receipt.get("orderType") == "DELIVERY" or receipt.get("delivery"):
+    is_delivery = receipt.get("orderType") == "DELIVERY" or bool(receipt.get("delivery"))
+    if not is_delivery and (receipt.get("customer") or receipt.get("phone")):
+        rows.extend([{"kind": "divider"}, {"kind": "section", "text": "DADOS DO CLIENTE", "size": 10, "bold": True}])
+        if receipt.get("customer"):
+            rows.append({"kind": "text", "text": f"CLIENTE: {receipt['customer']}", "size": 8})
+        if receipt.get("phone"):
+            rows.append({"kind": "text", "text": f"TELEFONE: {receipt['phone']}", "size": 8})
+
+    if is_delivery:
         rows.extend([{"kind": "divider"}, {"kind": "section", "text": "DADOS DA ENTREGA", "size": 10, "bold": True}])
         if receipt.get("customer"):
             rows.append({"kind": "text", "text": f"CLIENTE: {receipt['customer']}", "size": 8})
@@ -82,19 +90,18 @@ def receipt_rows(job):
         address = receipt.get("customerAddress")
         if isinstance(address, dict):
             address_parts = [address.get("street"), address.get("number"), address.get("neighborhood"), address.get("city"), f"CEP {address['postalCode']}" if address.get("postalCode") else None]
-            address_text = ", ".join(str(part) for part in address_parts if part)
+            structured_address = ", ".join(str(part) for part in address_parts if part)
+            address_text = structured_address or receipt.get("deliveryAddress")
             if address_text:
                 rows.append({"kind": "text", "text": f"ENDEREÇO: {address_text}", "size": 8})
             if address.get("complement"):
                 rows.append({"kind": "text", "text": f"COMPLEMENTO: {address['complement']}", "size": 8})
             if address.get("reference"):
                 rows.append({"kind": "text", "text": f"REFERÊNCIA: {address['reference']}", "size": 8})
-        elif address:
-            rows.append({"kind": "text", "text": f"ENDEREÇO: {address}", "size": 8})
+        elif address or receipt.get("deliveryAddress"):
+            rows.append({"kind": "text", "text": f"ENDEREÇO: {receipt.get('deliveryAddress') or address}", "size": 8})
         if receipt.get("reference"):
             rows.append({"kind": "text", "text": f"REFERÊNCIA: {receipt['reference']}", "size": 8})
-        elif receipt.get("deliveryAddress") and not address:
-            rows.append({"kind": "text", "text": f"ENDEREÇO: {receipt['deliveryAddress']}", "size": 8})
         courier = receipt.get("courier")
         if isinstance(courier, dict) and courier.get("name"):
             courier_text = courier["name"] + (f" · {courier['phone']}" if courier.get("phone") else "")
@@ -121,7 +128,7 @@ def receipt_rows(job):
 
     rows.append({"kind": "divider"})
     subtotal = receipt.get("subtotal")
-    if subtotal is not None and (receipt.get("discount") or receipt.get("fees")):
+    if subtotal is not None:
         rows.append({"kind": "text", "text": f"SUBTOTAL: {format_money(subtotal)}", "size": 8})
     for fee in receipt.get("fees", []):
         label = fee.get("label") or fee.get("name") or "TAXA"
@@ -136,8 +143,9 @@ def receipt_rows(job):
         rows.append({"kind": "total", "text": f"TOTAL  {format_money(receipt['total'])}", "align": "right", "size": 16, "bold": True})
     rows.extend([
         {"kind": "divider"},
-        {"kind": "text", "text": "Obrigado pela preferência!", "align": "center", "size": 9, "bold": True},
-        {"kind": "text", "text": "Volte sempre!", "align": "center", "size": 8},
+        {"kind": "text", "text": "OBRIGADO PELA PREFERÊNCIA!", "align": "center", "size": 9, "bold": True},
+        {"kind": "text", "text": "AÇAÍ DO CHALALA", "align": "center", "size": 9, "bold": True},
+        {"kind": "text", "text": "VOLTE SEMPRE!", "align": "center", "size": 8},
     ])
     return rows
 
@@ -179,7 +187,9 @@ def make_test_pdf(job):
     prepared = []
     for row in rows:
         if row["kind"] == "divider":
-            prepared.append((row, "-" * 32, 7))
+            from reportlab.pdfbase.pdfmetrics import stringWidth
+            dash_width = max(0.1, stringWidth("-", "Helvetica", 7))
+            prepared.append((row, "-" * max(1, int((width - 2 * margin) / dash_width)), 7))
         elif row["kind"] == "product":
             font = "Helvetica-Bold"
             size = row["size"]
@@ -204,6 +214,20 @@ def make_test_pdf(job):
                 pdf.drawString(margin + 9 * mm, y - index * (size * 1.45 + 1.5), line)
             pdf.drawRightString(width - margin, y, row["value"])
             y -= max(1, len(lines)) * (size * 1.45 + 1.5)
+            continue
+        elif row["kind"] in ("highlight", "total"):
+            block_height = (len(value) if isinstance(value, list) else 1) * (size * 1.45 + 1.5)
+            pdf.rect(margin, y - block_height + 2, width - 2 * margin, block_height)
+            pdf.setFont("Helvetica-Bold", size)
+            for index, line in enumerate(value):
+                pdf.drawCentredString(width / 2, y - index * (size * 1.45 + 1.5), line)
+            y -= block_height + 3
+            continue
+        elif row["kind"] == "section":
+            pdf.setFont("Helvetica-Bold", size)
+            pdf.drawString(margin, y, row["text"])
+            pdf.line(margin, y - 2, width - margin, y - 2)
+            y -= size * 1.45 + 3
             continue
         else:
             pdf.setFont("Helvetica-Bold" if row.get("bold") else "Helvetica-Oblique" if row.get("italic") else "Helvetica", size)

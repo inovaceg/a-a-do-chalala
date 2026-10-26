@@ -106,9 +106,11 @@ class DriverPrintTests(unittest.TestCase):
         self.assertEqual("".join(wrapped).replace(" ", ""), "Produtocomumadescriçãoextensaesemcortes")
 
     def test_non_delivery_omits_delivery_section_and_marks_counter(self):
-        rows = agent.receipt_rows({"id": "sample", "payload": {"title": "PEDIDO 9", "receipt": {"orderNumber": "9", "orderType": "BALCÃO", "products": []}}})
+        rows = agent.receipt_rows({"id": "sample", "payload": {"title": "PEDIDO 9", "receipt": {"orderNumber": "9", "orderType": "BALCÃO", "customer": "CLIENTE", "phone": "(32) 99999-0000", "products": []}}})
         texts = [row.get("text", "") for row in rows]
         self.assertIn("TIPO: BALCÃO", texts)
+        self.assertIn("DADOS DO CLIENTE", texts)
+        self.assertIn("CLIENTE: CLIENTE", texts)
         self.assertNotIn("DADOS DA ENTREGA", texts)
 
 
