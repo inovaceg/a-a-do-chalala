@@ -63,7 +63,7 @@ export default function CustomerManagement({ active }: { active: boolean }) {
         (sale.sale_items ?? []).forEach(item => customerItems.set(item.product_name, (customerItems.get(item.product_name) ?? 0) + Number(item.quantity)));
         totals.set(sale.customer_id, customerItems);
       });
-      setConsumption(new Map([...totals].map(([id, items]) => [id, [...items].map(([name, quantity]) => ({ name, quantity })).sort((a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name, "pt-BR"))])));
+      setConsumption(new Map([...totals].map(([id, items]) => [id, [...items].map(([name, quantity]) => ({ name, quantity })).sort((a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name, "pt-BR")).slice(0, 2)])));
       setConsumptionError("");
     }
     setLoading(false);
