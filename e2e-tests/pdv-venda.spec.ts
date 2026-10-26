@@ -25,6 +25,11 @@ test("operadora só acessa PDV e vendas e conclui uma venda com pagamento dividi
   await expect(page.getByRole("button", { name: "Produtos & estoque" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Financeiro" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Equipe" })).toHaveCount(0);
+  const couponDialog = page.getByRole("dialog");
+  await couponDialog.getByRole("button", { name: "Cancelar" }).click();
+  await expect(couponDialog).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "PDV", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Nova venda" }).click();
   await page.getByText("Cupom sem identificação").click();
   await page.getByRole("button", { name: "Abrir cupom" }).click();
 

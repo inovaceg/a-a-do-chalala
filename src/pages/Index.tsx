@@ -400,7 +400,6 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   };
   const cancelCouponStart = () => {
     setCouponStartOpen(false);
-    if (!couponStarted && active === "PDV") setActive(role === "admin" ? "Visão geral" : "Vendas");
   };
   useEffect(() => {
     if (active === "PDV" && !couponStarted && !closedSale) setCouponStartOpen(true);
