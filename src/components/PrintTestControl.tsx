@@ -5,6 +5,7 @@ import "./print-test.css";
 
 type PrintJob = { id: string; status: "pending" | "received" | "completed" | "error"; error_message: string | null; created_at: string };
 type AgentToken = { id: string; name: string; token: string };
+type AgentEntry = { id: string; name: string; created_at: string; revoked_at: string | null };
 const statusText: Record<PrintJob["status"], string> = { pending: "Pendente", received: "Recebido", completed: "Concluído", error: "Erro" };
 
 export default function PrintTestControl() {
@@ -14,7 +15,14 @@ export default function PrintTestControl() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [newAgent, setNewAgent] = useState<AgentToken | null>(null);
+  const [agents, setAgents] = useState<AgentEntry[]>([]);
   const [agentName, setAgentName] = useState("Agente Windows central");
+
+  const refreshAgents = async (selectedStore: string) => {
+    const { data, error: agentsError } = await supabase.functions.invoke("print-bridge", { body: { action: "list", storeId: selectedStore } });
+    if (agentsError || data?.error) setError(data?.error ?? "Não foi possível carregar os agentes.");
+    else setAgents(data.agents as AgentEntry[]);
+  };
 
   const refresh = async (selectedStore = storeId) => {
     if (!selectedStore) return;
@@ -35,6 +43,7 @@ export default function PrintTestControl() {
         setStoreId(membership.store_id);
         setStoreName(relatedStore?.name ?? "AÇAÍ DO CHALALA");
         void refresh(membership.store_id);
+        void refreshAgents(membership.store_id);
       }
     };
     void loadStore();
@@ -64,7 +73,19 @@ export default function PrintTestControl() {
     setError("");
     const { data, error: invokeError } = await supabase.functions.invoke("print-bridge", { body: { action: "provision", storeId, name: agentName } });
     if (invokeError || data?.error) setError(data?.error ?? "Não foi possível gerar a credencial do agente.");
-    else setNewAgent({ id: data.agent.id, name: data.agent.name, token: data.token });
+    else {
+      setNewAgent({ id: data.agent.id, name: data.agent.name, token: data.token });
+      await refreshAgents(storeId);
+    }
+    setBusy(false);
+  };
+
+  const revokeAgent = async (agentId: string) => {
+    if (!window.confirm("Revogar a credencial deste agente? Ele deixará de receber trabalhos.")) return;
+    setBusy(true);
+    const { data, error: invokeError } = await supabase.functions.invoke("print-bridge", { body: { action: "revoke", storeId, agentId } });
+    if (invokeError || data?.error) setError(data?.error ?? "Não foi possível revogar a credencial.");
+    else await refreshAgents(storeId);
     setBusy(false);
   };
 
@@ -73,6 +94,7 @@ export default function PrintTestControl() {
     <div className="print-test-actions"><button type="button" className="primary-button" onClick={() => void enqueueTest()} disabled={busy || !storeId}><Printer size={16}/>{busy ? "Enviando…" : "Enviar impressão de teste"}</button><button type="button" className="secondary-action" onClick={() => void refresh()} disabled={!storeId}><RefreshCw size={15}/> Atualizar status</button></div>
     {!jobs.length ? <p className="print-empty">Nenhum trabalho de impressão recente.</p> : <ul className="print-job-list">{jobs.map(job => <li key={job.id}><span className={`print-status status-${job.status}`}>{job.status === "completed" ? <Check size={13}/> : job.status === "error" ? <CircleAlert size={13}/> : <span className="status-pulse"/>}{statusText[job.status]}</span><span className="print-job-id" title={job.id}>{job.id.slice(0, 8)}</span><time>{new Date(job.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</time>{job.error_message && <small>{job.error_message}</small>}</li>)}</ul>}
     <div className="agent-provision"><div><b><ShieldCheck size={15}/> Credencial do agente</b><small>O token é exibido uma única vez. Guarde-o no Windows central.</small></div><div className="agent-provision-fields"><input aria-label="Nome do agente" value={agentName} onChange={event => setAgentName(event.target.value)} maxLength={80}/><button type="button" className="secondary-action" onClick={() => void provisionAgent()} disabled={busy || !storeId}>Gerar token</button></div></div>
+    {!!agents.length && <ul className="agent-list" aria-label="Agentes cadastrados">{agents.map(agent => <li key={agent.id}><span><b>{agent.name}</b><small>{agent.revoked_at ? "Revogado" : "Ativo"} · {new Date(agent.created_at).toLocaleDateString("pt-BR")}</small></span>{!agent.revoked_at && <button type="button" className="secondary-action" onClick={() => void revokeAgent(agent.id)} disabled={busy}>Revogar</button>}</li>)}</ul>}
     {error && <p className="print-error" role="alert">{error}</p>}
     {newAgent && <div className="agent-token-box" role="dialog" aria-modal="true" aria-label="Token do agente"><button className="token-close" aria-label="Fechar" onClick={() => setNewAgent(null)}>×</button><b>Credencial gerada para {newAgent.name}</b><p>Copie agora. O token completo não poderá ser recuperado depois.</p><code>{newAgent.token}</code><button type="button" className="secondary-action" onClick={() => { void navigator.clipboard.writeText(newAgent.token); }}>Copiar token</button></div>}
   </section>;

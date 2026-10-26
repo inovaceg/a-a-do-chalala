@@ -12,16 +12,28 @@ serve(async (req) => {
   const body = await req.json().catch(() => null);
   if (!body || typeof body.action !== "string") return json({ error: "Dados inválidos." }, 400);
 
-  if (["provision"].includes(body.action)) {
+  if (["provision", "list", "revoke"].includes(body.action)) {
     const sessionToken = req.headers.get("Authorization")?.replace(/^Bearer\s+/i, "");
     if (!sessionToken) return json({ error: "Sessão necessária." }, 401);
     const { data: auth, error: authError } = await admin.auth.getUser(sessionToken);
     if (authError || !auth.user) return json({ error: "Sessão inválida." }, 401);
     const { data: profile } = await admin.from("profiles").select("role,is_active").eq("id", auth.user.id).maybeSingle();
-    if (profile?.role !== "admin" || !profile.is_active) return json({ error: "Somente administradores ativos podem provisionar agentes." }, 403);
-    const { data: memberships } = await admin.from("store_memberships").select("store_id").eq("user_id", auth.user.id).limit(1);
+    if (profile?.role !== "admin" || !profile.is_active) return json({ error: "Somente administradores ativos podem gerenciar agentes." }, 403);
+    const { data: memberships } = await admin.from("store_memberships").select("store_id").eq("user_id", auth.user.id);
     const storeId = typeof body.storeId === "string" ? body.storeId : memberships?.[0]?.store_id;
     if (!storeId || !memberships?.some(membership => membership.store_id === storeId)) return json({ error: "Loja não autorizada." }, 403);
+    if (body.action === "list") {
+      const { data: agents, error } = await admin.from("print_agents").select("id,name,created_at,revoked_at").eq("store_id", storeId).order("created_at", { ascending: false });
+      if (error) return json({ error: "Não foi possível consultar os agentes." }, 500);
+      return json({ agents: agents ?? [] });
+    }
+    if (body.action === "revoke") {
+      if (typeof body.agentId !== "string") return json({ error: "Agente inválido." }, 400);
+      const { data: revoked, error } = await admin.from("print_agents").update({ revoked_at: new Date().toISOString() }).eq("id", body.agentId).eq("store_id", storeId).is("revoked_at", null).select("id").maybeSingle();
+      if (error) return json({ error: "Não foi possível revogar o token." }, 500);
+      if (!revoked) return json({ error: "Agente já revogado ou não pertence a esta loja." }, 404);
+      return json({ revoked: true });
+    }
     const name = typeof body.name === "string" ? body.name.trim().slice(0, 80) : "Agente Windows central";
     if (!name) return json({ error: "Informe o nome do agente." }, 400);
     const token = `acai_${Array.from(crypto.getRandomValues(new Uint8Array(32))).map(byte => byte.toString(16).padStart(2, "0")).join("")}`;

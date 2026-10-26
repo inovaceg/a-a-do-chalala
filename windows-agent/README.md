@@ -13,8 +13,9 @@ O agente Windows consulta a fila persistente do Supabase pela internet. O celula
 
 1. Entre no sistema com perfil administrador e abra **PDV**.
 2. Em **Impressão centralizada**, escolha **Gerar token**.
-3. Copie o token exibido naquele momento. Por segurança, o token integral não é armazenado e não poderá ser mostrado novamente. Se perder, revogue a credencial antiga no Supabase e gere outra.
-4. Não envie esse token por mensagem pública nem o coloque em repositórios.
+3. Copie o token exibido naquele momento. Por segurança, o token integral não é armazenado e não poderá ser mostrado novamente.
+4. Para invalidar uma credencial, use **Revogar** na lista de agentes do painel e gere um novo token.
+5. Não envie esse token por mensagem pública nem o coloque em repositórios.
 
 O agente usa um token exclusivo da loja. A credencial administrativa/service-role nunca é enviada ao computador. O banco guarda somente o hash SHA-256 do token. A chave publishable incluída no agente é pública e não concede acesso administrativo.
 
