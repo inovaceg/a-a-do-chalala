@@ -31,9 +31,9 @@ const digitsOnly = (value: string) => value.replace(/\D/g, "");
 const offerMessage = (customerName: string, favorites: FavoriteItem[]) => {
   const firstName = customerName.trim().split(/\s+/)[0] || customerName;
   const favoriteText = favorites.length > 1
-    ? `dos seus favoritos: *${favorites[0].name}* e *${favorites[1].name}*? 😋💜`
-    : `do seu favorito: *${favorites[0].name}*? 😋💜`;
-  return `💜 Oi, ${firstName}! Tudo bem? 😍\n\nBateu aquela vontade de comer algo gostoso? 🍧\n\nQue tal matar a saudade ${favoriteText}\n\nAqui no *Açaí do Chalala*, suas delícias favoritas estão te esperando!\n\n🛵 Peça agora pelo nosso delivery, sem sair de casa!\n\n👇 *FAÇA SEU PEDIDO PELO WHATSAPP:*\nhttps://wa.me/553287026461\n\n💜 *AÇAÍ DO CHALALA*\nSeu sabor favorito está a um clique de distância!`;
+    ? `dos seus favoritos: ${favorites[0].name} e ${favorites[1].name}? 😋💜`
+    : `do seu favorito: ${favorites[0].name}? 😋💜`;
+  return `💜 Oi, ${firstName}! Tudo bem? 😍\n\nBateu aquela vontade de comer algo gostoso? 🍧\n\nQue tal matar a saudade ${favoriteText}\n\nAqui no Açaí do Chalala, suas delícias favoritas estão te esperando!\n\n🛵 Peça agora pelo nosso delivery, sem sair de casa!\n\n👇 FAÇA SEU PEDIDO PELO WHATSAPP:\nhttps://wa.me/553287026461\n\n💜 AÇAÍ DO CHALALA\nSeu sabor favorito está a um clique de distância!`;
 };
 
 export default function CustomerManagement({ active }: { active: boolean }) {
