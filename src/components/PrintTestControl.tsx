@@ -61,7 +61,8 @@ export default function PrintTestControl() {
     setBusy(true);
     setError("");
     const { data: { user } } = await supabase.auth.getUser();
-    const payload = { kind: "test", title: "TESTE DE IMPRESSÃO", store: storeName, createdAt: new Date().toISOString(), lines: [{ text: "AÇAÍ DO CHALALA", bold: true }, { text: "Teste enviado pelo painel administrativo." }, { text: new Date().toLocaleString("pt-BR") }, { text: "A impressora está conectada ao agente." }] };
+    const createdAt = new Date().toISOString();
+    const payload = { kind: "test", title: "TESTE DE IMPRESSÃO", store: storeName, createdAt, receipt: { orderNumber: "TESTE", soldAt: createdAt, operator: "Painel administrativo", products: [], payments: [], total: null }, lines: [{ text: "Teste enviado pelo painel administrativo." }, { text: "A impressora está conectada ao agente." }] };
     const { error: insertError } = await supabase.from("print_jobs").insert({ store_id: storeId, created_by: user?.id, payload }).select("id").single();
     if (insertError) setError("Não foi possível enfileirar o teste. Verifique sua permissão de administradora.");
     await refresh();
