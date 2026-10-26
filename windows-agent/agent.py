@@ -349,7 +349,7 @@ def print_with_driver(job, config):
                 continue
             size = select_font(row)
             line_height = max(int(dpi_y * size / 72 * 1.25), dc.GetTextExtent("Ag")[1] + 1)
-            if kind in ("highlight", "section", "total"):
+            if kind in ("highlight", "total"):
                 lines = split_to_width(row["text"], printable_width - int(dpi_x * 3 / 25.4), lambda text: dc.GetTextExtent(text)[0])
                 padding_y = max(2, int(dpi_y * 0.7 / 25.4))
                 box_height = len(lines) * line_height + 2 * padding_y
@@ -357,6 +357,18 @@ def print_with_driver(job, config):
                 for index, line in enumerate(lines):
                     draw_centered(line, y + padding_y + index * line_height)
                 y += box_height + int(dpi_y * (0.8 if kind == "total" else 0.45) / 25.4)
+                continue
+            if kind == "section":
+                lines = split_to_width(row["text"], printable_width, lambda text: dc.GetTextExtent(text)[0])
+                for line in lines:
+                    dc.TextOut(page_left + side_margin, y, line)
+                    y += line_height
+                rule_font = win32ui.CreateFont({"name": "Arial", "height": max(1, int(dpi_y * 5 / 72))})
+                dc.SelectObject(rule_font)
+                dash_width = max(1, dc.GetTextExtent("_")[0])
+                dash_count = max(1, printable_width // dash_width)
+                draw_centered("_" * dash_count, y)
+                y += line_height + int(dpi_y * 0.5 / 25.4)
                 continue
             if kind == "product":
                 quantity = row["quantity"]

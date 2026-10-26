@@ -41,7 +41,7 @@ class DriverPrintTests(unittest.TestCase):
             agent.print_with_driver(self.job, self.config)
         self.dc.StartDoc.assert_called_once()
         self.dc.EndDoc.assert_called_once()
-        self.assertGreaterEqual(self.dc.Rectangle.call_count, 2)
+        self.assertEqual(self.dc.Rectangle.call_count, 2)
         self.assertTrue(all(len(call.args) == 1 and isinstance(call.args[0], tuple) and len(call.args[0]) == 4 for call in self.dc.Rectangle.call_args_list))
         self.assertTrue(any(call.args[0].get("height", 0) >= int(203 * 22 / 72) for call in self.win32ui.CreateFont.call_args_list))
         self.dc.DeleteDC.assert_called_once()
