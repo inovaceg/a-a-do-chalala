@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Ban, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import { Ban, Pencil, Plus, Printer, RefreshCw, Trash2, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import SalesReportPanel, { SalesReportTabs, type ReportType } from "./SalesReportPanel";
 import "./sales-management.css";
@@ -33,6 +33,7 @@ export default function SalesManagement({ active, role }: { active: boolean; rol
   const [creditCustomer, setCreditCustomer] = useState("");
   const [creditDueDate, setCreditDueDate] = useState("");
   const [changeAmount, setChangeAmount] = useState("0");
+  const [reprinting, setReprinting] = useState<string | null>(null);
 
   const loadSales = useCallback(async () => {
     setLoading(true);
@@ -124,6 +125,52 @@ export default function SalesManagement({ active, role }: { active: boolean; rol
     setDeleting(null);
   };
 
+  const reprintSale = async (sale: Sale) => {
+    setReprinting(sale.id);
+    setError("");
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      setError("Não foi possível identificar sua sessão para reimprimir o cupom.");
+      setReprinting(null);
+      return;
+    }
+    const { data: memberships, error: membershipError } = await supabase.from("store_memberships").select("store_id,stores(name)").eq("user_id", user.id).limit(1);
+    const membership = memberships?.[0] as { store_id: string; stores: { name: string }[] | { name: string } | null } | undefined;
+    if (membershipError || !membership) {
+      setError("Não foi possível localizar a loja para enviar o cupom à impressão.");
+      setReprinting(null);
+      return;
+    }
+    const store = Array.isArray(membership.stores) ? membership.stores[0] : membership.stores;
+    const lines = [
+      { text: store?.name ?? "AÇAÍ DO CHALALA", bold: true },
+      { text: `COMANDA ${sale.receipt_number}`, bold: true },
+      { text: `DATA: ${dateTime(sale.created_at)}` },
+      ...sale.sale_items.flatMap(item => [
+        { text: `${item.quantity} x ${item.product_name}` },
+        ...(item.extras ?? []).map(extra => ({ text: `  + ${extra.name} (${money(Number(extra.price))})` })),
+        { text: `  ${money(Number(item.line_total))}` },
+      ]),
+      { text: `SUBTOTAL ${money(Number(sale.subtotal))}` },
+      ...(Number(sale.discount_amount) > 0 ? [{ text: `DESCONTO ${money(Number(sale.discount_amount))}` }] : []),
+      ...sale.sale_payments.map(payment => ({ text: `${payment.method.toUpperCase()} ${money(Number(payment.amount))}` })),
+      ...(Number(sale.change_amount) > 0 ? [{ text: `TROCO ${money(Number(sale.change_amount))}` }] : []),
+      { text: `TOTAL ${money(Number(sale.total))}`, bold: true },
+      ...(sale.customer_name ? [{ text: `CLIENTE: ${sale.customer_name}` }] : []),
+    ];
+    const { error: printError } = await supabase.from("print_jobs").insert({
+      store_id: membership.store_id,
+      created_by: user.id,
+      payload: { kind: "sale", title: `REIMPRESSÃO PEDIDO ${sale.receipt_number}`, store: store?.name ?? "AÇAÍ DO CHALALA", createdAt: new Date().toISOString(), lines },
+    });
+    setReprinting(null);
+    if (printError) {
+      setError("Não foi possível enviar o cupom para reimpressão.");
+      return;
+    }
+    setNotice(`Cupom da venda ${sale.receipt_number} enviado para reimpressão.`);
+  };
+
   if (!active) return null;
 
   return <div className={`sales-screen ${role === "operator" ? "operator-sales-view" : ""}`}>
@@ -132,7 +179,7 @@ export default function SalesManagement({ active, role }: { active: boolean; rol
       {notice && <div className="sales-notice">{notice}<button onClick={() => setNotice("")} aria-label="Fechar aviso"><X size={14}/></button></div>}
       {error && !editing && <div className="sales-error" role="alert">{error}</div>}
       <SalesReportTabs value={reportTab} onChange={setReportTab}/>
-      {loading ? <div className="sales-empty">Carregando vendas…</div> : reportTab !== "daily" ? <SalesReportPanel report={reportTab} sales={sales}/> : <><SalesReportPanel report="daily" sales={sales}/><h3 className="sales-history-subheading">Detalhamento das vendas</h3>{sales.length === 0 ? <div className="sales-empty"><strong>Nenhuma venda registrada ainda</strong><span>As vendas concluídas no PDV aparecerão aqui.</span></div> : <div className="sales-table-wrap"><table className="sales-table"><thead><tr><th>Venda</th><th>Data e hora</th><th>Itens</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead><tbody>{sales.map(sale => <tr key={sale.id}><td><b className="order-id">#{sale.receipt_number}</b></td><td>{dateTime(sale.created_at)}</td><td><div className="sales-items-summary">{sale.sale_items.map(item => <span key={item.id}>{item.quantity}× {item.product_name}</span>)}</div></td><td className="amount">{money(sale.total)}</td><td><span className={`sales-status ${sale.status}`}>{sale.status === "completed" ? "Concluída" : "Cancelada"}</span></td><td><div className="sales-actions"><button onClick={() => startEdit(sale)} disabled={sale.status !== "completed"} aria-label={`Editar venda ${sale.receipt_number}`}><Pencil size={15}/> Editar</button><button className="sales-cancel" onClick={() => void cancelSale(sale)} disabled={sale.status !== "completed"} aria-label={`Cancelar venda ${sale.receipt_number}`}><Ban size={15}/> Cancelar</button>{role === "admin" && <button className="sales-delete" onClick={() => void deleteSale(sale)} disabled={deleting === sale.id} aria-label={`Excluir venda ${sale.receipt_number}`}><Trash2 size={15}/> {deleting === sale.id ? "Excluindo…" : "Excluir"}</button>}</div></td></tr>)}</tbody></table></div>}</>}
+      {loading ? <div className="sales-empty">Carregando vendas…</div> : reportTab !== "daily" ? <SalesReportPanel report={reportTab} sales={sales}/> : <><SalesReportPanel report="daily" sales={sales}/><h3 className="sales-history-subheading">Detalhamento das vendas</h3>{sales.length === 0 ? <div className="sales-empty"><strong>Nenhuma venda registrada ainda</strong><span>As vendas concluídas no PDV aparecerão aqui.</span></div> : <div className="sales-table-wrap"><table className="sales-table"><thead><tr><th>Venda</th><th>Data e hora</th><th>Itens</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead><tbody>{sales.map(sale => <tr key={sale.id}><td><b className="order-id">#{sale.receipt_number}</b></td><td>{dateTime(sale.created_at)}</td><td><div className="sales-items-summary">{sale.sale_items.map(item => <span key={item.id}>{item.quantity}× {item.product_name}</span>)}</div></td><td className="amount">{money(sale.total)}</td><td><span className={`sales-status ${sale.status}`}>{sale.status === "completed" ? "Concluída" : "Cancelada"}</span></td><td><div className="sales-actions"><button onClick={() => void reprintSale(sale)} disabled={reprinting === sale.id} aria-label={`Reimprimir cupom da venda ${sale.receipt_number}`}><Printer size={15}/> {reprinting === sale.id ? "Enviando…" : "Reimprimir"}</button><button onClick={() => startEdit(sale)} disabled={sale.status !== "completed"} aria-label={`Editar venda ${sale.receipt_number}`}><Pencil size={15}/> Editar</button><button className="sales-cancel" onClick={() => void cancelSale(sale)} disabled={sale.status !== "completed"} aria-label={`Cancelar venda ${sale.receipt_number}`}><Ban size={15}/> Cancelar</button>{role === "admin" && <button className="sales-delete" onClick={() => void deleteSale(sale)} disabled={deleting === sale.id} aria-label={`Excluir venda ${sale.receipt_number}`}><Trash2 size={15}/> {deleting === sale.id ? "Excluindo…" : "Excluir"}</button>}</div></td></tr>)}</tbody></table></div>}</>}
     </section>
 
     {editing && <div className="modal-backdrop sales-edit-backdrop"><form className="catalog-modal sales-edit-modal" onSubmit={saveEdit}><button type="button" className="modal-close" onClick={() => setEditing(null)} aria-label="Fechar"><X size={18}/></button><div className="modal-kicker">EDIÇÃO DA VENDA · {editing.receipt_number}</div><h2>Editar produtos e pagamentos</h2><p>Os preços serão recalculados pelo catálogo atual.</p><div className="sales-edit-lines"><div className="sales-edit-line-head"><span>Produto</span><span>Qtd.</span><span>Valor</span><span/></div>{items.map((item, index) => { const product = productById.get(item.productId); const lineTotal = product ? (Number(product.price) + item.extras.reduce((sum, extra) => sum + Number(extra.price), 0)) * item.quantity : 0; return <div className="sales-edit-line" key={item.key}><select aria-label={`Produto ${index + 1}`} required value={item.productId} onChange={event => setItems(current => current.map((line, lineIndex) => lineIndex === index ? { ...line, productId: event.target.value, extras: [] } : line))}><option value="">Selecione produto</option>{products.map(option => <option key={option.id} value={option.id}>{option.name} · {money(option.price)}</option>)}</select><input aria-label={`Quantidade ${index + 1}`} type="number" min="1" step="1" required value={item.quantity} onChange={event => setItems(current => current.map((line, lineIndex) => lineIndex === index ? { ...line, quantity: Math.max(1, Number(event.target.value)) } : line))}/><b>{money(lineTotal)}</b><button type="button" className="sales-remove-line" onClick={() => setItems(current => current.filter((_, lineIndex) => lineIndex !== index))} aria-label="Remover item"><X size={15}/></button></div>; })}</div><button type="button" className="secondary-action sales-add-line" onClick={() => setItems(current => [...current, { key: crypto.randomUUID(), productId: "", quantity: 1, extras: [] }])}><Plus size={15}/> Adicionar produto</button><div className="sales-payment-edit"><div className="payment-heading"><h3>Pagamentos</h3><button type="button" className="secondary-action" onClick={() => setPayments(current => [...current, { key: crypto.randomUUID(), method: "Pix", amount: 0 }])}><Plus size={14}/> Adicionar pagamento</button></div>{payments.map((payment, index) => <div className="sales-payment-row" key={payment.key}><select aria-label={`Pagamento ${index + 1}`} value={payment.method} onChange={event => setPayments(current => current.map((line, lineIndex) => lineIndex === index ? { ...line, method: event.target.value as PaymentMethod } : line))}>{methods.map(method => <option key={method}>{method}</option>)}</select><input aria-label={`Valor do pagamento ${index + 1}`} type="number" min="0" step="0.01" required value={payment.amount} onChange={event => setPayments(current => current.map((line, lineIndex) => lineIndex === index ? { ...line, amount: Number(event.target.value) } : line))}/><button type="button" className="sales-remove-line" onClick={() => setPayments(current => current.filter((_, lineIndex) => lineIndex !== index))} aria-label="Remover pagamento"><X size={15}/></button></div>)}</div>{payments.some(payment => payment.method === "Crediário") && <div className="credit-fields"><label>Cliente do crediário<input value={creditCustomer} onChange={event => setCreditCustomer(event.target.value)}/></label><label>Vencimento<input type="date" value={creditDueDate} onChange={event => setCreditDueDate(event.target.value)}/></label></div>}{payments.some(payment => payment.method === "Dinheiro") && <label className="change-field">Troco a devolver<input type="number" min="0" step="0.01" value={changeAmount} onChange={event => setChangeAmount(event.target.value)}/></label>}<div className="sales-edit-total"><span>Total atualizado</span><b>{money(editTotal)}</b></div>{error && <small className="discount-error" role="alert">{error}</small>}<div className="modal-actions"><button type="button" className="secondary-action" onClick={() => setEditing(null)} disabled={saving}>Voltar</button><button className="primary-button" disabled={saving || items.length === 0 || payments.length === 0}>{saving ? "Salvando…" : "Salvar alterações"}</button></div></form></div>}
