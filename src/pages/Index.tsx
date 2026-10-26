@@ -7,9 +7,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { Activity, ArrowUpRight, Banknote, Bell, Boxes, CalendarDays, Check, ChevronDown, Clock3, Coffee, CreditCard, LayoutDashboard, Menu, Minus, Plus, Printer, Search, ShoppingBag, ShoppingCart, Users, UserCog, Wallet, LogOut, X } from "lucide-react";
 import "./pos-keyboard.css";
 import "./product-edit.css";
+import "./combo-editor.css";
 
 type Extra = { id?: string; name: string; price: number; is_active?: boolean };
-type Product = { id?: string; name: string; category: string; price: number; color: string; emoji: string; kind?: "combo" | "product"; extras?: Extra[] };
+type ComboComponent = { id: string; name: string; type: "product" | "extra"; quantity: number };
+type Product = { id?: string; name: string; category: string; price: number; color: string; emoji: string; kind?: "combo" | "product"; extras?: Extra[]; combo_items?: ComboComponent[] };
 type CartItem = { id: number; product: Product; extras: Extra[] };
 type PaymentMethod = "Dinheiro" | "Cartão de débito" | "Cartão de crédito" | "Pix" | "Vale alimentação" | "Crediário";
 type PaymentLine = { method: PaymentMethod; amount: number };
@@ -52,7 +54,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   useEffect(() => {
     let mounted = true;
     Promise.all([
-      supabase.from("products").select("id,name,category,price,color,emoji,kind,extras").eq("is_active", true),
+      supabase.from("products").select("id,name,category,price,color,emoji,kind,extras,combo_items").eq("is_active", true),
       supabase.rpc("open_cash_session"),
       supabase.from("extras").select("id,name,price,is_active").eq("is_active", true).order("name"),
     ]).then(([catalog, session, availableExtras]) => {
@@ -65,6 +67,38 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     });
     return () => { mounted = false; };
   }, []);
+  useEffect(() => {
+    const modal = document.querySelector<HTMLFormElement>(".catalog-modal");
+    if (!modal) return;
+    modal.querySelector(".combo-composition-editor")?.remove();
+    if (dialog !== "product" || !formCombo) return;
+    const editor = document.createElement("section");
+    editor.className = "combo-composition-editor form-extras";
+    const heading = document.createElement("b");
+    heading.textContent = "Itens incluídos no combo";
+    const help = document.createElement("small");
+    help.textContent = "O preço informado é o valor final do combo. Selecione os produtos e complementos que ele inclui.";
+    editor.append(heading, help);
+    const choices = document.createElement("div");
+    const componentOptions = [
+      ...products.filter(product => product.id && product.kind !== "combo" && product.id !== editingProduct?.id).map(product => ({ id: product.id!, name: product.name, type: "product" as const })),
+      ...extras.filter(extra => extra.id).map(extra => ({ id: extra.id!, name: extra.name, type: "extra" as const })),
+    ];
+    for (const component of componentOptions) {
+      const label = document.createElement("label");
+      label.className = "extra-check";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.value = `${component.type}:${component.id}`;
+      checkbox.checked = Boolean(editingProduct?.combo_items?.some(item => item.id === component.id && item.type === component.type));
+      const text = document.createElement("span");
+      text.textContent = `${component.type === "product" ? "Produto" : "Complemento"} · ${component.name}`;
+      label.append(checkbox, text);
+      choices.append(label);
+    }
+    editor.append(choices);
+    modal.insertBefore(editor, modal.querySelector(".modal-actions"));
+  }, [dialog, formCombo, products, extras, editingProduct]);
   const cartTotal = useMemo(() => cart.reduce((sum, item) => sum + item.product.price + item.extras.reduce((n, extra) => n + extra.price, 0), 0), [cart]);
   const filtered = products.filter(p => `${p.name} ${p.category}`.toLowerCase().includes(query.toLowerCase()));
   const saveProducts = (next: Product[]) => { setProducts(next); localStorage.setItem("chalala-products", JSON.stringify(next)); };
@@ -78,8 +112,14 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     if (!name || !Number.isFinite(price) || price < 0) return;
     if (dialog === "product") {
       const productExtras = formExtras.map(n => extras.find(e => e.name === n)).filter((e): e is Extra => Boolean(e));
+      const selectedComboItems = Array.from(document.querySelectorAll<HTMLInputElement>(".combo-composition-editor input:checked")).map(input => {
+        const [rawType, id] = input.value.split(":");
+        const type = rawType === "product" ? "product" : "extra";
+        const component = type === "product" ? products.find(item => item.id === id) : extras.find(item => item.id === id);
+        return component ? { id, name: component.name, type, quantity: 1 } : null;
+      }).filter((component): component is ComboComponent => component !== null);
       const category = `${formCategory}${formCombo ? " • Combo" : ""}`;
-      const { data, error } = await supabase.rpc("save_product", { p_product_id: editingProduct?.id ?? null, p_name: name, p_category: category, p_price: price, p_kind: formCombo ? "combo" : "product", p_extras: productExtras });
+      const { data, error } = await supabase.rpc("save_product", { p_product_id: editingProduct?.id ?? null, p_name: name, p_category: category, p_price: price, p_kind: formCombo ? "combo" : "product", p_extras: productExtras, p_combo_items: selectedComboItems });
       if (error || !data) { setNotice("Não foi possível salvar o produto."); return; }
       const saved = { ...(data as Product), price: Number((data as Product).price), color: editingProduct?.color ?? "lilac", emoji: editingProduct?.emoji ?? (formCombo ? "🍨" : "🥣"), extras: productExtras };
       saveProducts(editingProduct ? products.map(product => product.id === editingProduct.id ? saved : product) : [...products, saved]);
