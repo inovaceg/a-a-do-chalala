@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { Plus, RefreshCw, ShieldCheck, UserRound, Users } from "lucide-react";
+import { Bike, Plus, RefreshCw, ShieldCheck, UserRound, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useSessionContext } from "@/components/SessionContextProvider";
+import CourierManagement from "@/components/CourierManagement";
+import "./registrations-management.css";
 
 type TeamProfile = { id: string; display_name: string; email: string; role: "admin" | "operator"; is_active: boolean; created_at: string };
 const functionError = async (error: { message: string; context?: unknown } | null) => {
@@ -10,7 +12,7 @@ const functionError = async (error: { message: string; context?: unknown } | nul
   return response?.error || error.message;
 };
 
-export default function TeamManagement() {
+function TeamUsersManagement() {
   const { session } = useSessionContext();
   const [team, setTeam] = useState<TeamProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,4 +55,9 @@ export default function TeamManagement() {
     <div className="team-layout"><form className="team-create" onSubmit={createUser}><div className="team-section-title"><span className="team-add-icon"><Plus size={17}/></span><div><h3>Cadastrar pessoa</h3><p>A senha é definida por você e entregue à pessoa.</p></div></div><label>Nome completo<input required value={name} onChange={e => setName(e.target.value)} placeholder="Nome da pessoa"/></label><label>E-mail de acesso<input required type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="pessoa@empresa.com"/></label><label>Senha inicial<input required minLength={8} type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Mínimo de 8 caracteres"/></label><label>Função<select value={role} onChange={e => setRole(e.target.value as "admin" | "operator")}><option value="operator">Operadora — PDV e vendas</option><option value="admin">Administradora — acesso completo</option></select></label>{error && <p className="team-error" role="alert">{error}</p>}{success && <p className="team-success" role="status">{success}</p>}<button className="primary-button team-submit" disabled={saving || !session}>{saving ? "Criando conta…" : "Criar conta"}</button></form>
       <section className="team-list"><div className="team-list-header"><div><h3>Contas cadastradas</h3><p>{team.length} pessoas</p></div></div>{loading ? <div className="team-empty">Carregando equipe…</div> : team.length ? <div className="team-table">{team.map(person => <article className="team-person" key={person.id}><div className="team-avatar">{person.display_name.split(" ").map(part => part[0]).slice(0,2).join("").toUpperCase()}</div><div className="team-person-info"><b>{person.display_name}{person.id === session?.user.id ? " (você)" : ""}</b><small>{person.email}</small></div><select aria-label={`Função de ${person.display_name}`} value={person.role} disabled={person.id === session?.user.id} onChange={e => void updateUser(person.id, { action: "set-role", role: e.target.value as "admin" | "operator" })}><option value="operator">Operadora</option><option value="admin">Administradora</option></select><button className={`account-state ${person.is_active ? "account-active" : "account-inactive"}`} disabled={person.id === session?.user.id} onClick={() => void updateUser(person.id, { action: "set-active", active: !person.is_active })}>{person.is_active ? "Ativa" : "Inativa"}</button></article>)}</div> : <div className="team-empty">Nenhuma conta cadastrada ainda.</div>}</section></div>
   </section>;
+}
+
+export default function TeamManagement() {
+  const [tab, setTab] = useState<"team" | "couriers">("team");
+  return <div className="registrations-management"><div className="registrations-tabs" role="tablist" aria-label="Cadastros"><button className={tab === "team" ? "active" : ""} role="tab" aria-selected={tab === "team"} onClick={() => setTab("team")}><Users size={16}/> Equipe e usuários</button><button className={tab === "couriers" ? "active" : ""} role="tab" aria-selected={tab === "couriers"} onClick={() => setTab("couriers")}><Bike size={16}/> Motoboys</button></div>{tab === "team" ? <TeamUsersManagement/> : <CourierManagement/>}</div>;
 }

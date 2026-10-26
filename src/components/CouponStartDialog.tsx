@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Check, MapPin, Search, UserRound, UserRoundX, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import "./coupon-start-dialog.css";
+import "./courier-management.css";
 
 export type CouponCustomer = { id: string; name: string; whatsapp: string; street: string | null; address_number: string | null; neighborhood: string | null; city: string | null; address_complement: string | null; postal_code: string | null };
 export type DeliveryCourier = { id: string; name: string; whatsapp: string };

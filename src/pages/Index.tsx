@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import PaymentCheckout from "@/components/PaymentCheckout";
-import CouponStartDialog, { type CouponCustomer, type CouponSelection } from "@/components/CouponStartDialog";
+import CouponStartDialog, { type CouponCustomer, type CouponSelection, type DeliveryCourier } from "@/components/CouponStartDialog";
 import DashboardDataSync from "@/components/DashboardDataSync";
 import TeamManagement from "@/components/TeamManagement";
 import SalesManagement from "@/components/SalesManagement";
@@ -27,7 +27,7 @@ const initialProducts: Product[] = [
   { name: "Açaí na Tigela", category: "Açaí • 400ml", price: 16, color: "berry", emoji: "🥣", extras: [{ name: "Morango", price: 3 }, { name: "Nutella", price: 4 }, { name: "Leite Ninho", price: 3 }] },
   { name: "Suco Natural", category: "Bebidas • 300ml", price: 9, color: "green", emoji: "🥤", extras: [] },
 ];
-const navItems = [{ label: "Visão geral", icon: LayoutDashboard }, { label: "PDV", icon: ShoppingCart }, { label: "Vendas", icon: Banknote }, { label: "Produtos & estoque", icon: Boxes }, { label: "Clientes", icon: Users }, { label: "Financeiro", icon: Wallet }, { label: "Equipe", icon: UserCog }];
+const navItems = [{ label: "Visão geral", icon: LayoutDashboard }, { label: "PDV", icon: ShoppingCart }, { label: "Vendas", icon: Banknote }, { label: "Produtos & estoque", icon: Boxes }, { label: "Clientes", icon: Users }, { label: "Financeiro", icon: Wallet }, { label: "Cadastros", icon: UserCog }];
 const money = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const loadProducts = (): Product[] => { try { const stored = localStorage.getItem("chalala-products"); return stored ? JSON.parse(stored) as Product[] : initialProducts; } catch { return initialProducts; } };
 
@@ -45,8 +45,9 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   const [dialog, setDialog] = useState<"product" | "extra" | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [customize, setCustomize] = useState<Product | null>(null);
-  const [closedSale, setClosedSale] = useState<{ items: CartItem[]; total: number; id: string; discount: number; payments: PaymentLine[]; change: number; creditCustomer: string; creditDueDate: string; customer: CouponCustomer | null; delivery: boolean; deliveryAddress: string } | null>(null);
+  const [closedSale, setClosedSale] = useState<{ items: CartItem[]; total: number; id: string; discount: number; payments: PaymentLine[]; change: number; creditCustomer: string; creditDueDate: string; customer: CouponCustomer | null; delivery: boolean; deliveryAddress: string; courier: DeliveryCourier | null } | null>(null);
   const [currentSaleCustomer, setCurrentSaleCustomer] = useState<CouponCustomer | null>(null);
+  const [currentSaleCourier, setCurrentSaleCourier] = useState<DeliveryCourier | null>(null);
   const [currentSaleDelivery, setCurrentSaleDelivery] = useState(false);
   const [currentDeliveryAddress, setCurrentDeliveryAddress] = useState("");
   const [couponStartOpen, setCouponStartOpen] = useState(false);
@@ -235,11 +236,13 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
       p_customer_id: currentSaleCustomer?.id ?? null,
       p_delivery_address: currentDeliveryAddress || null,
       p_is_delivery: currentSaleDelivery,
+      p_courier_id: currentSaleCourier?.id ?? null,
     });
     setCheckoutSaving(false);
     if (error || !data) { setNotice(error?.message.includes("discount") ? "Somente uma administradora pode aplicar desconto." : error?.message || "Não foi possível registrar a venda."); return; }
-    setClosedSale({ items: [...cart], total: Number(data.total), id: data.receipt_number, customer: currentSaleCustomer, delivery: currentSaleDelivery, deliveryAddress: currentDeliveryAddress, ...payment });
+    setClosedSale({ items: [...cart], total: Number(data.total), id: data.receipt_number, customer: currentSaleCustomer, courier: currentSaleCourier, delivery: currentSaleDelivery, deliveryAddress: currentDeliveryAddress, ...payment });
     setCurrentSaleCustomer(null);
+    setCurrentSaleCourier(null);
     setCurrentSaleDelivery(false);
     setCurrentDeliveryAddress("");
     setCouponStarted(false);
@@ -261,6 +264,11 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
       const delivery = document.createElement("span");
       delivery.textContent = `DELIVERY${closedSale.deliveryAddress ? ` · ${closedSale.deliveryAddress}` : ""}`;
       identity.append(delivery);
+      if (closedSale.courier) {
+        const courier = document.createElement("span");
+        courier.textContent = `MOTOBOY: ${closedSale.courier.name} · ${closedSale.courier.whatsapp}`;
+        identity.append(courier);
+      }
     }
     receipt.insertBefore(identity, receipt.querySelector(".receipt-items"));
     return () => identity.remove();
@@ -327,6 +335,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   };
   const openCoupon = (selection: CouponSelection) => {
     setCurrentSaleCustomer(selection.customer);
+    setCurrentSaleCourier(selection.courier);
     setCurrentSaleDelivery(selection.delivery);
     setCurrentDeliveryAddress(selection.deliveryAddress);
     setCouponStarted(true);
@@ -346,7 +355,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   }, [active, couponStarted, closedSale]);
 
   return <div className="app-shell">
-    <aside className={`sidebar ${mobileMenu ? "sidebar-open" : ""}`}><div className="brand-lockup"><div className="brand-mark">a<span>ç</span></div><div><strong>AÇAÍ DO<br/>CHALALA</strong><small>Sistema de Gestão e Vendas</small></div><button className="mobile-close" onClick={() => setMobileMenu(false)} aria-label="Fechar menu"><X size={18}/></button></div><div className="store-select"><span className="store-dot"/><span><b>Loja principal</b><small>Caixa 01 · Aberto</small></span><ChevronDown size={16}/></div><p className="nav-caption">MENU PRINCIPAL</p><nav>{visibleNavItems.map(item => <button key={item.label} onClick={() => { setActive(item.label); setMobileMenu(false); }} className={`nav-item ${active === item.label ? "selected" : ""}`}><item.icon size={19}/><span>{item.label}</span>{item.label === "PDV" && <span className="live-dot"/>}</button>)}</nav><div className="sidebar-bottom"><div className="help-card"><div className="help-icon"><Coffee size={18}/></div><div><b>Precisa de ajuda?</b><span>Fale com a gente</span></div><a href="https://wa.me/553287026461" target="_blank" rel="noreferrer" aria-label="Fale pelo WhatsApp">↗</a></div><div className="user-row"><div className="avatar">{initials}</div><div><b>{displayName}</b><small>{role === "admin" ? "Administradora" : "Operadora"}</small></div><button aria-label="Sair" title="Sair" onClick={async () => { const { error } = await supabase.auth.signOut({ scope: "local" }); if (error) { setNotice("Não foi possível encerrar a sessão."); return; } window.location.assign("/login"); }}><LogOut size={16}/></button></div></div></aside>
+    <aside className={`sidebar ${mobileMenu ? "sidebar-open" : ""}`}><div className="brand-lockup"><div className="brand-mark">a<span>ç</span></div><div><strong>AÇAÍ DO<br/>CHALALA</strong><small>Sistema de Gestão e Vendas</small></div><button className="mobile-close" onClick={() => setMobileMenu(false)} aria-label="Fechar menu"><X size={18}/></button></div><div className="store-select"><span className="store-dot"/><span><b>Loja principal</b><small>Caixa 01 · Aberto</small></span><ChevronDown size={16}/></div><p className="nav-caption">MENU PRINCIPAL</p><nav>{visibleNavItems.map(item => <button key={item.label} onClick={() => { setActive(item.label === "Cadastros" ? "Equipe" : item.label); setMobileMenu(false); }} className={`nav-item ${active === (item.label === "Cadastros" ? "Equipe" : item.label) ? "selected" : ""}`}><item.icon size={19}/><span>{item.label}</span>{item.label === "PDV" && <span className="live-dot"/>}</button>)}</nav><div className="sidebar-bottom"><div className="help-card"><div className="help-icon"><Coffee size={18}/></div><div><b>Precisa de ajuda?</b><span>Fale com a gente</span></div><a href="https://wa.me/553287026461" target="_blank" rel="noreferrer" aria-label="Fale pelo WhatsApp">↗</a></div><div className="user-row"><div className="avatar">{initials}</div><div><b>{displayName}</b><small>{role === "admin" ? "Administradora" : "Operadora"}</small></div><button aria-label="Sair" title="Sair" onClick={async () => { const { error } = await supabase.auth.signOut({ scope: "local" }); if (error) { setNotice("Não foi possível encerrar a sessão."); return; } window.location.assign("/login"); }}><LogOut size={16}/></button></div></div></aside>
     {mobileMenu && <button className="mobile-scrim" aria-label="Fechar menu" onClick={() => setMobileMenu(false)}/>}
     <main className="main-area"><header className="topbar"><div className="topbar-left"><button className="menu-trigger" onClick={() => setMobileMenu(true)} aria-label="Abrir menu"><Menu/></button><div className="crumb">Açaí do Chalala <span>/</span> <b>{active}</b></div></div><div className="top-actions"><div className="today"><CalendarDays size={16}/> <span>Quarta-feira, 18 de junho</span></div><button className="icon-button notification" aria-label="Notificações"><Bell size={19}/><i/></button><div className="top-user"><div className="avatar">{initials}</div><ChevronDown size={15}/></div></div></header>
       <div className="page-content"><div className="page-heading"><div><div className="eyebrow">QUARTA-FEIRA, 18 JUNHO 2025 <span className="status-pill"><i/> Loja aberta</span></div><h1>{active === "Visão geral" ? "Bom dia, Mariana" : active}</h1><p>{active === "Visão geral" ? "Aqui está o resumo da sua loja hoje." : `Acompanhe e gerencie ${active.toLowerCase()} da sua loja.`}</p></div><button className="primary-button" onClick={startNewSale}><Plus size={17}/> Nova venda</button></div>
