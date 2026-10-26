@@ -277,7 +277,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     });
     setCheckoutSaving(false);
     if (error || !data) { setNotice(error?.message.includes("discount") ? "Somente uma administradora pode aplicar desconto." : error?.message || "Não foi possível registrar a venda."); return; }
-    const salePrint = { receiptNumber: data.receipt_number as string, shortOrderNumber: (String(data.receipt_number).match(/\d+$/)?.[0] ?? String(data.receipt_number)).slice(-5), total: Number(data.total), discount: Number(payment.discount), change: Number(payment.change), products: cart.map(item => ({ name: item.product.name, quantity: 1, extras: item.extras.map(extra => ({ name: extra.name, price: extra.price })), unit_price: Number(item.product.price), line_total: totalOf(item) })), customer: currentSaleCustomer, isDelivery: currentSaleDelivery, deliveryAddress: currentDeliveryAddress, courier: currentSaleCourier, payments: payment.payments, operator: displayName || email.split("@")[0] || "Operador" };
+    const salePrint = { receiptNumber: data.receipt_number as string, shortOrderNumber: (String(data.receipt_number).match(/\d+$/)?.[0] ?? String(data.receipt_number)).slice(-6).padStart(6, "0"), total: Number(data.total), discount: Number(payment.discount), change: Number(payment.change), products: cart.map(item => ({ name: item.product.name, quantity: 1, extras: item.extras.map(extra => ({ name: extra.name, price: extra.price })), unit_price: Number(item.product.price), line_total: totalOf(item) })), customer: currentSaleCustomer, isDelivery: currentSaleDelivery, deliveryAddress: currentDeliveryAddress, courier: currentSaleCourier, payments: payment.payments, operator: displayName || email.split("@")[0] || "Operador" };
     setClosedSale({ items: [...cart], total: Number(data.total), id: data.receipt_number, customer: currentSaleCustomer, courier: currentSaleCourier, delivery: currentSaleDelivery, deliveryAddress: currentDeliveryAddress, ...payment });
     window.setTimeout(() => {
       void (async () => {
@@ -304,6 +304,8 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   };
   const generateReceiptPdf = () => {
     if (!closedSale) return;
+    const sequence = closedSale.id.match(/\d+$/)?.[0] ?? closedSale.id;
+    const shortOrderNumber = sequence.slice(-6).padStart(6, "0");
     const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: [80, 400] });
     const rows: { text: string; size: number; bold?: boolean; align?: "left" | "center" | "right" }[] = [
       { text: "AÇAÍ DO CHALALA", size: 15, bold: true, align: "center" },
@@ -312,7 +314,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
       { text: "--------------------------------", size: 8, align: "center" },
       { text: "COMPROVANTE DE PEDIDO", size: 10, bold: true, align: "center" },
       { text: "--------------------------------", size: 8, align: "center" },
-      { text: `PEDIDO Nº ${closedSale.id}`, size: 13, bold: true, align: "center" },
+      { text: `PEDIDO Nº ${shortOrderNumber}`, size: 13, bold: true, align: "center" },
       { text: `DATA: ${new Date().toLocaleString("pt-BR")}`, size: 8 },
       { text: `OPERADOR: ${displayName || email.split("@")[0] || "Operador"}`, size: 8 },
       { text: `TIPO: ${closedSale.delivery ? "DELIVERY" : "NÃO DELIVERY"}`, size: 9, bold: true },
