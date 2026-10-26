@@ -278,7 +278,8 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     if (error || !data) { setNotice(error?.message.includes("discount") ? "Somente uma administradora pode aplicar desconto." : error?.message || "Não foi possível registrar a venda."); return; }
     const salePrint = { receiptNumber: data.receipt_number as string, total: Number(data.total), items: cart.map(item => `${item.product.name}${item.extras.length ? ` (${item.extras.map(extra => extra.name).join(", ")})` : ""} · ${money(totalOf(item))}`), customer: currentSaleCustomer?.name, isDelivery: currentSaleDelivery, deliveryAddress: currentDeliveryAddress };
     setClosedSale({ items: [...cart], total: Number(data.total), id: data.receipt_number, customer: currentSaleCustomer, courier: currentSaleCourier, delivery: currentSaleDelivery, deliveryAddress: currentDeliveryAddress, ...payment });
-    void (async () => {
+    window.setTimeout(() => {
+      void (async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       const { data: memberships } = await supabase.from("store_memberships").select("store_id,stores(name)").eq("user_id", user.id).limit(1);
@@ -288,7 +289,8 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
       const lines = [{ text: associatedStore?.name ?? "AÇAÍ DO CHALALA", bold: true }, { text: `COMANDA ${salePrint.receiptNumber}`, bold: true }, ...salePrint.items.map(text => ({ text })), { text: `TOTAL ${money(salePrint.total)}`, bold: true }, ...(salePrint.customer ? [{ text: `CLIENTE: ${salePrint.customer}` }] : []), ...(salePrint.isDelivery ? [{ text: `DELIVERY: ${salePrint.deliveryAddress || "ENDEREÇO NÃO INFORMADO"}` }] : [])];
       const { error: printError } = await supabase.from("print_jobs").insert({ store_id: membership.store_id, created_by: user.id, payload: { kind: "sale", title: `PEDIDO ${salePrint.receiptNumber}`, store: associatedStore?.name ?? "AÇAÍ DO CHALALA", createdAt: new Date().toISOString(), lines } });
       if (printError) setNotice("Venda registrada, mas não foi possível enviar o comprovante à fila de impressão.");
-    })();
+      })();
+    }, 3000);
     setCurrentSaleCustomer(null);
     setCurrentSaleCourier(null);
     setCurrentSaleDelivery(false);

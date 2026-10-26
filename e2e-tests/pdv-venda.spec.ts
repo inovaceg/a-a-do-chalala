@@ -49,6 +49,8 @@ test("operadora só acessa PDV e vendas e conclui uma venda com pagamento dividi
   await checkout.getByLabel("Valor da forma 2").fill("8");
   await checkout.getByLabel("Valor da forma 2").press("Enter");
   await expect(checkout.getByRole("button", { name: /Concluir venda/ })).toBeFocused();
+  const printStartedAt = Date.now();
+  const printResponse = page.waitForResponse(response => response.request().method() === "POST" && response.url().includes("/rest/v1/print_jobs"));
   await page.keyboard.press("F9");
   const receipt = page.getByRole("dialog");
   await expect(receipt.getByRole("heading", { name: "Comprovante não fiscal" })).toBeVisible();
@@ -63,5 +65,7 @@ test("operadora só acessa PDV e vendas e conclui uma venda com pagamento dividi
   expect(Number(persistedSale.total)).toBe(18);
   expect(persistedSale.sale_items).toEqual([{ product_name: "AÇAÍ TRADICIONAL" }]);
   expect(persistedSale.sale_payments).toHaveLength(2);
-  await expect(receipt.getByRole("button", { name: "Imprimir / Salvar PDF" })).toBeVisible();
+  await expect(receipt.getByRole("button", { name: "Imprimir / Salvar PDF" })).toBeHidden();
+  expect((await printResponse).ok()).toBeTruthy();
+  expect(Date.now() - printStartedAt).toBeGreaterThanOrEqual(2800);
 });
