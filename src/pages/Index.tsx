@@ -110,6 +110,10 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
         } else {
           modal.querySelector<HTMLButtonElement>(".modal-actions .primary-button")?.focus();
         }
+      } else if (event.key === "F8") {
+        event.preventDefault();
+        add(customize, (customize.extras ?? extras).filter(extra => selectedExtras.includes(extra.name)));
+        setCustomize(null);
       } else if (event.key === "Escape") {
         event.preventDefault();
         setCustomize(null);
@@ -117,7 +121,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     };
     window.addEventListener("keydown", handleCustomizeKeys);
     return () => window.removeEventListener("keydown", handleCustomizeKeys);
-  }, [customize, extras, selectedExtraIndex]);
+  }, [customize, extras, selectedExtraIndex, selectedExtras, add]);
 
   const completeCheckout = async (payment: { discount: number; payments: PaymentLine[]; change: number; creditCustomer: string; creditDueDate: string }) => {
     if (!cashSession) { setNotice("Não há uma sessão de caixa aberta para esta venda."); return; }
