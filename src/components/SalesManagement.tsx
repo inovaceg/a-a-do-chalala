@@ -33,8 +33,6 @@ export default function SalesManagement({ active, role }: { active: boolean; rol
   const [creditCustomer, setCreditCustomer] = useState("");
   const [creditDueDate, setCreditDueDate] = useState("");
   const [changeAmount, setChangeAmount] = useState("0");
-  const [reprinting, setReprinting] = useState<string | null>(null);
-
   const loadSales = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -125,50 +123,21 @@ export default function SalesManagement({ active, role }: { active: boolean; rol
     setDeleting(null);
   };
 
-  const reprintSale = async (sale: Sale) => {
-    setReprinting(sale.id);
+  const reprintSale = (sale: Sale) => {
+    const escapeHtml = (value: string) => value.replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character] ?? character);
+    const popup = window.open("", "_blank", "width=520,height=760");
+    if (!popup) {
+      setError("O navegador bloqueou a janela do comprovante. Permita pop-ups para gerar o PDF.");
+      return;
+    }
+    const itemRows = sale.sale_items.map(item => `<div class="item"><div><b>${item.quantity}× ${escapeHtml(item.product_name)}</b>${(item.extras ?? []).map(extra => `<small>+ ${escapeHtml(extra.name)} (${money(Number(extra.price))})</small>`).join("")}</div><strong>${money(Number(item.line_total))}</strong></div>`).join("");
+    const discount = Number(sale.discount_amount) > 0 ? `<div class="row"><span>Desconto</span><b>− ${money(Number(sale.discount_amount))}</b></div>` : "";
+    const paymentsHtml = sale.sale_payments.map(payment => `<div class="row"><span>${escapeHtml(payment.method)}</span><b>${money(Number(payment.amount))}</b></div>`).join("");
+    const change = Number(sale.change_amount) > 0 ? `<div class="row"><span>Troco</span><b>${money(Number(sale.change_amount))}</b></div>` : "";
+    const customer = sale.customer_name ? `<p>Cliente: ${escapeHtml(sale.customer_name)}</p>` : "";
+    popup.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cupom ${escapeHtml(sale.receipt_number)}</title><style>*{box-sizing:border-box}body{margin:0;background:#f4f1f5;color:#302b35;font:14px Arial,sans-serif}.toolbar{position:sticky;top:0;display:flex;justify-content:center;gap:10px;padding:14px;background:#fff;border-bottom:1px solid #ddd}.toolbar button{padding:10px 16px;border:0;border-radius:9px;background:#5b117a;color:#fff;font-weight:700;cursor:pointer}.toolbar button:last-child{background:#eee;color:#302b35}.receipt{width:min(80mm,calc(100% - 32px));margin:24px auto;padding:20px;background:#fff}.brand{text-align:center;font-weight:800;color:#5b117a}.receipt h1{text-align:center;font-size:17px}.meta{text-align:center;font-size:12px;color:#625b66}.items{margin:18px 0;border-top:1px dashed #aaa}.item,.row{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px dashed #ddd}.item small{display:block;margin-top:4px}.row{font-size:12px}.total{display:flex;justify-content:space-between;padding-top:14px;font-size:16px;font-weight:800}.status{text-align:center;margin-top:16px;font-size:10px}@media print{body{background:#fff}.toolbar{display:none}.receipt{width:72mm;margin:0;padding:3mm}.brand{color:#000}.items{margin-top:10px}}</style></head><body><nav class="toolbar"><button onclick="window.print()">Imprimir / Salvar PDF</button><button onclick="window.close()">Fechar</button></nav><main class="receipt"><div class="brand">AÇAÍ DO CHALALA</div><h1>Comprovante não fiscal</h1><div class="meta">Venda #${escapeHtml(sale.receipt_number)} · ${escapeHtml(dateTime(sale.created_at))}</div><div class="items">${itemRows}</div>${discount}${paymentsHtml}${change}${customer}<div class="total"><span>TOTAL</span><span>${money(Number(sale.total))}</span></div><div class="status">Venda ${sale.status === "completed" ? "concluída" : "cancelada"}</div></main></body></html>`);
+    popup.document.close();
     setError("");
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
-      setError("Não foi possível identificar sua sessão para reimprimir o cupom.");
-      setReprinting(null);
-      return;
-    }
-    const { data: memberships, error: membershipError } = await supabase.from("store_memberships").select("store_id,stores(name)").eq("user_id", user.id).limit(1);
-    const membership = memberships?.[0] as { store_id: string; stores: { name: string }[] | { name: string } | null } | undefined;
-    if (membershipError || !membership) {
-      setError("Não foi possível localizar a loja para enviar o cupom à impressão.");
-      setReprinting(null);
-      return;
-    }
-    const store = Array.isArray(membership.stores) ? membership.stores[0] : membership.stores;
-    const lines = [
-      { text: store?.name ?? "AÇAÍ DO CHALALA", bold: true },
-      { text: `COMANDA ${sale.receipt_number}`, bold: true },
-      { text: `DATA: ${dateTime(sale.created_at)}` },
-      ...sale.sale_items.flatMap(item => [
-        { text: `${item.quantity} x ${item.product_name}` },
-        ...(item.extras ?? []).map(extra => ({ text: `  + ${extra.name} (${money(Number(extra.price))})` })),
-        { text: `  ${money(Number(item.line_total))}` },
-      ]),
-      { text: `SUBTOTAL ${money(Number(sale.subtotal))}` },
-      ...(Number(sale.discount_amount) > 0 ? [{ text: `DESCONTO ${money(Number(sale.discount_amount))}` }] : []),
-      ...sale.sale_payments.map(payment => ({ text: `${payment.method.toUpperCase()} ${money(Number(payment.amount))}` })),
-      ...(Number(sale.change_amount) > 0 ? [{ text: `TROCO ${money(Number(sale.change_amount))}` }] : []),
-      { text: `TOTAL ${money(Number(sale.total))}`, bold: true },
-      ...(sale.customer_name ? [{ text: `CLIENTE: ${sale.customer_name}` }] : []),
-    ];
-    const { error: printError } = await supabase.from("print_jobs").insert({
-      store_id: membership.store_id,
-      created_by: user.id,
-      payload: { kind: "sale", title: `REIMPRESSÃO PEDIDO ${sale.receipt_number}`, store: store?.name ?? "AÇAÍ DO CHALALA", createdAt: new Date().toISOString(), lines },
-    });
-    setReprinting(null);
-    if (printError) {
-      setError("Não foi possível enviar o cupom para reimpressão.");
-      return;
-    }
-    setNotice(`Cupom da venda ${sale.receipt_number} enviado para reimpressão.`);
   };
 
   if (!active) return null;
@@ -179,7 +148,7 @@ export default function SalesManagement({ active, role }: { active: boolean; rol
       {notice && <div className="sales-notice">{notice}<button onClick={() => setNotice("")} aria-label="Fechar aviso"><X size={14}/></button></div>}
       {error && !editing && <div className="sales-error" role="alert">{error}</div>}
       <SalesReportTabs value={reportTab} onChange={setReportTab}/>
-      {loading ? <div className="sales-empty">Carregando vendas…</div> : reportTab !== "daily" ? <SalesReportPanel report={reportTab} sales={sales}/> : <><SalesReportPanel report="daily" sales={sales}/><h3 className="sales-history-subheading">Detalhamento das vendas</h3>{sales.length === 0 ? <div className="sales-empty"><strong>Nenhuma venda registrada ainda</strong><span>As vendas concluídas no PDV aparecerão aqui.</span></div> : <div className="sales-table-wrap"><table className="sales-table"><thead><tr><th>Venda</th><th>Data e hora</th><th>Itens</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead><tbody>{sales.map(sale => <tr key={sale.id}><td><b className="order-id">#{sale.receipt_number}</b></td><td>{dateTime(sale.created_at)}</td><td><div className="sales-items-summary">{sale.sale_items.map(item => <span key={item.id}>{item.quantity}× {item.product_name}</span>)}</div></td><td className="amount">{money(sale.total)}</td><td><span className={`sales-status ${sale.status}`}>{sale.status === "completed" ? "Concluída" : "Cancelada"}</span></td><td><div className="sales-actions"><button onClick={() => void reprintSale(sale)} disabled={reprinting === sale.id} aria-label={`Reimprimir cupom da venda ${sale.receipt_number}`}><Printer size={15}/> {reprinting === sale.id ? "Enviando…" : "Reimprimir"}</button><button onClick={() => startEdit(sale)} disabled={sale.status !== "completed"} aria-label={`Editar venda ${sale.receipt_number}`}><Pencil size={15}/> Editar</button><button className="sales-cancel" onClick={() => void cancelSale(sale)} disabled={sale.status !== "completed"} aria-label={`Cancelar venda ${sale.receipt_number}`}><Ban size={15}/> Cancelar</button>{role === "admin" && <button className="sales-delete" onClick={() => void deleteSale(sale)} disabled={deleting === sale.id} aria-label={`Excluir venda ${sale.receipt_number}`}><Trash2 size={15}/> {deleting === sale.id ? "Excluindo…" : "Excluir"}</button>}</div></td></tr>)}</tbody></table></div>}</>}
+      {loading ? <div className="sales-empty">Carregando vendas…</div> : reportTab !== "daily" ? <SalesReportPanel report={reportTab} sales={sales}/> : <><SalesReportPanel report="daily" sales={sales}/><h3 className="sales-history-subheading">Detalhamento das vendas</h3>{sales.length === 0 ? <div className="sales-empty"><strong>Nenhuma venda registrada ainda</strong><span>As vendas concluídas no PDV aparecerão aqui.</span></div> : <div className="sales-table-wrap"><table className="sales-table"><thead><tr><th>Venda</th><th>Data e hora</th><th>Itens</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead><tbody>{sales.map(sale => <tr key={sale.id}><td><b className="order-id">#{sale.receipt_number}</b></td><td>{dateTime(sale.created_at)}</td><td><div className="sales-items-summary">{sale.sale_items.map(item => <span key={item.id}>{item.quantity}× {item.product_name}</span>)}</div></td><td className="amount">{money(sale.total)}</td><td><span className={`sales-status ${sale.status}`}>{sale.status === "completed" ? "Concluída" : "Cancelada"}</span></td><td><div className="sales-actions"><button onClick={() => reprintSale(sale)} aria-label={`Gerar PDF do cupom da venda ${sale.receipt_number}`}><Printer size={15}/> Gerar PDF</button><button onClick={() => startEdit(sale)} disabled={sale.status !== "completed"} aria-label={`Editar venda ${sale.receipt_number}`}><Pencil size={15}/> Editar</button><button className="sales-cancel" onClick={() => void cancelSale(sale)} disabled={sale.status !== "completed"} aria-label={`Cancelar venda ${sale.receipt_number}`}><Ban size={15}/> Cancelar</button>{role === "admin" && <button className="sales-delete" onClick={() => void deleteSale(sale)} disabled={deleting === sale.id} aria-label={`Excluir venda ${sale.receipt_number}`}><Trash2 size={15}/> {deleting === sale.id ? "Excluindo…" : "Excluir"}</button>}</div></td></tr>)}</tbody></table></div>}</>}
     </section>
 
     {editing && <div className="modal-backdrop sales-edit-backdrop"><form className="catalog-modal sales-edit-modal" onSubmit={saveEdit}><button type="button" className="modal-close" onClick={() => setEditing(null)} aria-label="Fechar"><X size={18}/></button><div className="modal-kicker">EDIÇÃO DA VENDA · {editing.receipt_number}</div><h2>Editar produtos e pagamentos</h2><p>Os preços serão recalculados pelo catálogo atual.</p><div className="sales-edit-lines"><div className="sales-edit-line-head"><span>Produto</span><span>Qtd.</span><span>Valor</span><span/></div>{items.map((item, index) => { const product = productById.get(item.productId); const lineTotal = product ? (Number(product.price) + item.extras.reduce((sum, extra) => sum + Number(extra.price), 0)) * item.quantity : 0; return <div className="sales-edit-line" key={item.key}><select aria-label={`Produto ${index + 1}`} required value={item.productId} onChange={event => setItems(current => current.map((line, lineIndex) => lineIndex === index ? { ...line, productId: event.target.value, extras: [] } : line))}><option value="">Selecione produto</option>{products.map(option => <option key={option.id} value={option.id}>{option.name} · {money(option.price)}</option>)}</select><input aria-label={`Quantidade ${index + 1}`} type="number" min="1" step="1" required value={item.quantity} onChange={event => setItems(current => current.map((line, lineIndex) => lineIndex === index ? { ...line, quantity: Math.max(1, Number(event.target.value)) } : line))}/><b>{money(lineTotal)}</b><button type="button" className="sales-remove-line" onClick={() => setItems(current => current.filter((_, lineIndex) => lineIndex !== index))} aria-label="Remover item"><X size={15}/></button></div>; })}</div><button type="button" className="secondary-action sales-add-line" onClick={() => setItems(current => [...current, { key: crypto.randomUUID(), productId: "", quantity: 1, extras: [] }])}><Plus size={15}/> Adicionar produto</button><div className="sales-payment-edit"><div className="payment-heading"><h3>Pagamentos</h3><button type="button" className="secondary-action" onClick={() => setPayments(current => [...current, { key: crypto.randomUUID(), method: "Pix", amount: 0 }])}><Plus size={14}/> Adicionar pagamento</button></div>{payments.map((payment, index) => <div className="sales-payment-row" key={payment.key}><select aria-label={`Pagamento ${index + 1}`} value={payment.method} onChange={event => setPayments(current => current.map((line, lineIndex) => lineIndex === index ? { ...line, method: event.target.value as PaymentMethod } : line))}>{methods.map(method => <option key={method}>{method}</option>)}</select><input aria-label={`Valor do pagamento ${index + 1}`} type="number" min="0" step="0.01" required value={payment.amount} onChange={event => setPayments(current => current.map((line, lineIndex) => lineIndex === index ? { ...line, amount: Number(event.target.value) } : line))}/><button type="button" className="sales-remove-line" onClick={() => setPayments(current => current.filter((_, lineIndex) => lineIndex !== index))} aria-label="Remover pagamento"><X size={15}/></button></div>)}</div>{payments.some(payment => payment.method === "Crediário") && <div className="credit-fields"><label>Cliente do crediário<input value={creditCustomer} onChange={event => setCreditCustomer(event.target.value)}/></label><label>Vencimento<input type="date" value={creditDueDate} onChange={event => setCreditDueDate(event.target.value)}/></label></div>}{payments.some(payment => payment.method === "Dinheiro") && <label className="change-field">Troco a devolver<input type="number" min="0" step="0.01" value={changeAmount} onChange={event => setChangeAmount(event.target.value)}/></label>}<div className="sales-edit-total"><span>Total atualizado</span><b>{money(editTotal)}</b></div>{error && <small className="discount-error" role="alert">{error}</small>}<div className="modal-actions"><button type="button" className="secondary-action" onClick={() => setEditing(null)} disabled={saving}>Voltar</button><button className="primary-button" disabled={saving || items.length === 0 || payments.length === 0}>{saving ? "Salvando…" : "Salvar alterações"}</button></div></form></div>}
