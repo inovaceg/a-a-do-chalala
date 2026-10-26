@@ -150,7 +150,7 @@ export default function FinancialManagement({ active }: { active: boolean }) {
     setError("");
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setError("Sessão não encontrada."); setSaving(false); return; }
-    const values = { description: form.description.trim(), category: form.category, supplier: form.supplier.trim() || null, amount, due_date: form.due_date, notes: form.notes.trim() || null, updated_by: user.id, updated_at: new Date().toISOString() };
+    const values = { description: form.description.trim().toLocaleUpperCase("pt-BR"), category: form.category.toLocaleUpperCase("pt-BR"), supplier: form.supplier.trim().toLocaleUpperCase("pt-BR") || null, amount, due_date: form.due_date, notes: form.notes.trim().toLocaleUpperCase("pt-BR") || null, updated_by: user.id, updated_at: new Date().toISOString() };
     const result = editing
       ? await supabase.from("expenses").update(values).eq("id", editing.id).eq("status", "pending").select("id").maybeSingle()
       : await supabase.from("expenses").insert({ ...values, created_by: user.id, status: "pending" });
