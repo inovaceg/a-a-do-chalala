@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import PaymentCheckout from "@/components/PaymentCheckout";
+import CouponStartDialog, { type CouponCustomer } from "@/components/CouponStartDialog";
 import TeamManagement from "@/components/TeamManagement";
 import SalesManagement from "@/components/SalesManagement";
 import CustomerManagement from "@/components/CustomerManagement";
@@ -42,7 +43,10 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   const [dialog, setDialog] = useState<"product" | "extra" | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [customize, setCustomize] = useState<Product | null>(null);
-  const [closedSale, setClosedSale] = useState<{ items: CartItem[]; total: number; id: string; discount: number; payments: PaymentLine[]; change: number; creditCustomer: string; creditDueDate: string } | null>(null);
+  const [closedSale, setClosedSale] = useState<{ items: CartItem[]; total: number; id: string; discount: number; payments: PaymentLine[]; change: number; creditCustomer: string; creditDueDate: string; customer: CouponCustomer | null } | null>(null);
+  const [currentSaleCustomer, setCurrentSaleCustomer] = useState<CouponCustomer | null>(null);
+  const [couponStartOpen, setCouponStartOpen] = useState(false);
+  const [couponStarted, setCouponStarted] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [selectedExtras, setSelectedExtras] = useState<string[]>([]);
   const [selectedExtraIndex, setSelectedExtraIndex] = useState(0);
@@ -216,7 +220,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     if (!cashSession) { setNotice("Não há uma sessão de caixa aberta para esta venda."); return; }
     if (cart.some(item => !item.product.id)) { setNotice("Um produto do pedido não está sincronizado com o catálogo. Atualize o catálogo antes de vender."); return; }
     setCheckoutSaving(true);
-    const { data, error } = await supabase.rpc("record_sale", {
+    const { data, error } = await supabase.rpc("record_sale_with_customer", {
       p_cash_session_id: cashSession.id,
       p_discount: payment.discount,
       p_change: payment.change,
@@ -224,13 +228,29 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
       p_credit_due_date: payment.creditDueDate || null,
       p_items: cart.map(item => ({ product_id: item.product.id, extras: item.extras })),
       p_payments: payment.payments,
+      p_customer_id: currentSaleCustomer?.id ?? null,
     });
     setCheckoutSaving(false);
     if (error || !data) { setNotice(error?.message.includes("discount") ? "Somente uma administradora pode aplicar desconto." : error?.message || "Não foi possível registrar a venda."); return; }
-    setClosedSale({ items: [...cart], total: Number(data.total), id: data.receipt_number, ...payment });
+    setClosedSale({ items: [...cart], total: Number(data.total), id: data.receipt_number, customer: currentSaleCustomer, ...payment });
+    setCurrentSaleCustomer(null);
     setCart([]);
     setCheckoutOpen(false);
   };
+  useEffect(() => {
+    const receipt = document.querySelector<HTMLElement>(".sale-receipt");
+    if (!receipt || !closedSale) return;
+    receipt.querySelector(".coupon-receipt-identity")?.remove();
+    const identity = document.createElement("div");
+    identity.className = "coupon-receipt-identity";
+    const label = document.createElement("b");
+    label.textContent = "IDENTIFICAÇÃO DO CUPOM";
+    const detail = document.createElement("span");
+    detail.textContent = closedSale.customer ? `${closedSale.customer.name} · WhatsApp ${closedSale.customer.whatsapp}` : "CUPOM SEM IDENTIFICAÇÃO";
+    identity.append(label, detail);
+    receipt.insertBefore(identity, receipt.querySelector(".receipt-items"));
+    return () => identity.remove();
+  }, [closedSale]);
   const totalOf = (item: CartItem) => item.product.price + item.extras.reduce((sum, e) => sum + e.price, 0);
   const openForm = (type: "product" | "extra", product?: Product) => { setEditingProduct(product ?? null); setFormName(product?.name ?? ""); setFormPrice(product ? String(product.price) : ""); setFormCategory(product?.category.split(" • ")[0] ?? "Açaí"); setFormCombo(product?.kind === "combo" || Boolean(product?.category.includes("Combo"))); setFormExtras(product?.extras?.map(extra => extra.name) ?? []); setDialog(type); };
   useEffect(() => {
@@ -289,10 +309,15 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
       window.setTimeout(() => setNotice(""), 3200);
       return;
     }
+    setCouponStartOpen(true);
+  };
+  const openCoupon = (customer: CouponCustomer | null) => {
+    setCurrentSaleCustomer(customer);
     setCart([]);
     setClosedSale(null);
+    setCouponStartOpen(false);
     setActive("PDV");
-    setNotice("Novo pedido iniciado. Selecione os produtos para começar.");
+    setNotice(customer ? `Cupom identificado para ${customer.name}.` : "Cupom sem identificação iniciado.");
     window.setTimeout(() => setNotice(""), 3200);
   };
 
@@ -308,6 +333,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     {checkoutOpen && <PaymentCheckout total={cartTotal} saving={checkoutSaving} onCancel={() => setCheckoutOpen(false)} onComplete={completeCheckout} />}
     {notice && <div className="toast-message success-toast"><Check size={17}/>{notice}<button onClick={() => setNotice("")} aria-label="Fechar"><X size={15}/></button></div>}
     {closedSale && <div className="receipt-backdrop"><section className="sale-receipt" role="dialog" aria-modal="true" aria-labelledby="receipt-title"><div className="receipt-logo">AÇAÍ DO CHALALA</div><h2 id="receipt-title">Comprovante não fiscal</h2><span>Venda #{closedSale.id} · {new Date().toLocaleDateString("pt-BR")}</span><strong>Venda concluída com sucesso</strong><div className="receipt-items"><div className="receipt-columns"><span>ITEM</span><span>QTD</span><span>VALOR</span></div>{closedSale.items.map(item => <div className="receipt-line" key={item.id}><span className="receipt-description"><b>{item.product.name}</b>{item.extras.map(extra => <small key={extra.name}>+ {extra.name} ({money(extra.price)})</small>)}</span><span>1</span><b>{money(totalOf(item))}</b></div>)}<div className="receipt-total"><span>DESCONTO</span><b>− {money(closedSale.discount)}</b></div>{closedSale.payments.map((payment, index) => <div className="receipt-total" key={index}><span>{payment.method.toUpperCase()}</span><b>{money(payment.amount)}</b></div>)}{closedSale.change > 0 && <div className="receipt-total"><span>TROCO</span><b>{money(closedSale.change)}</b></div>}{closedSale.creditCustomer && <div className="receipt-total"><span>CLIENTE / VENCIMENTO</span><b>{closedSale.creditCustomer} · {closedSale.creditDueDate}</b></div>}<div className="receipt-total"><span>TOTAL</span><b>{money(closedSale.total)}</b></div></div><div className="receipt-actions"><button onClick={() => window.print()}><Printer size={15}/> Imprimir / Salvar PDF</button><button className="receipt-close" onClick={() => setClosedSale(null)}>Fechar</button></div></section></div>}
+    <CouponStartDialog open={couponStartOpen} onCancel={() => setCouponStartOpen(false)} onConfirm={openCoupon} />
     <SalesManagement active={active === "Vendas"} />
     <CustomerManagement active={active === "Clientes"} />
     <ExtraManagement active={active === "Produtos & estoque" && role === "admin"} extras={extras} onSaved={saved => setExtras(current => [...current.filter(extra => extra.id !== saved.id), saved].sort((a, b) => a.name.localeCompare(b.name)))} />
