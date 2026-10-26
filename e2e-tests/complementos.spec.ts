@@ -13,17 +13,19 @@ test.beforeEach(async () => {
   cleanup = created.cleanup;
   cleanupExtra = created.cleanupExtra;
   verifyExtra = created.verifyExtra;
+  extraNames = [];
 });
 
 test.afterEach(async () => {
-  if (extraName) await cleanupExtra(extraName);
+  for (const name of extraNames) await cleanupExtra(name);
   if (cleanup) await cleanup();
 });
 
 test("administradora cria e edita complementos com persistência no Supabase", async ({ page }) => {
   const suffix = `${Date.now()}`;
-  extraName = `Complemento teste ${suffix}`;
+  const extraName = `Complemento teste ${suffix}`;
   const editedName = `${extraName} editado`;
+  extraNames.push(extraName);
 
   await signInThroughApp(page, adminAccount);
   await page.getByRole("button", { name: "Produtos & estoque" }).click();
@@ -45,5 +47,5 @@ test("administradora cria e edita complementos com persistência no Supabase", a
   await expect(manager.getByText(editedName)).toBeVisible();
   const updatedExtra = await verifyExtra(editedName);
   expect(Number(updatedExtra.price)).toBe(6.5);
-  extraName = editedName;
+  extraNames.push(editedName);
 });

@@ -67,8 +67,8 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   const filtered = products.filter(p => `${p.name} ${p.category}`.toLowerCase().includes(query.toLowerCase()));
   const saveProducts = (next: Product[]) => { setProducts(next); localStorage.setItem("chalala-products", JSON.stringify(next)); };
   const add = (product: Product, picked: Extra[] = []) => { setCart(c => [...c, { id: Date.now() + Math.random(), product, extras: picked }]); };
-  const availableExtras = (product: Product) => extras.length ? extras : product.extras ?? [];
-  const beginProduct = (product: Product) => { const choices = availableExtras(product); if (choices.length) { setCustomize({ ...product, extras: choices }); setSelectedExtras([]); } else add(product); };
+  const availableExtras = () => extras;
+  const beginProduct = (product: Product) => { const choices = availableExtras(); if (choices.length) { setCustomize({ ...product, extras: choices }); setSelectedExtras([]); } else add(product); };
   const submitCatalog = async (event: React.FormEvent) => {
     event.preventDefault();
     const name = formName.trim();
