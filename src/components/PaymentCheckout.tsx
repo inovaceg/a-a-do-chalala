@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Plus, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import "./form-uppercase.css";
 
 type Method = "Dinheiro" | "Cartão de débito" | "Cartão de crédito" | "Pix" | "Vale alimentação" | "Crediário";
 type Line = { method: Method; amount: number };
@@ -63,7 +64,7 @@ export default function PaymentCheckout({ total, saving = false, onCancel, onCom
     if (paid > due && !needsChange) return setError("O total informado excede o valor da venda sem pagamento em dinheiro para troco.");
     if (hasCredit && (!customer.trim() || !dueDate)) return setError("Informe o cliente e o vencimento do crediário.");
     if (needsChange && (Number(change) < paid - due)) return setError("Informe o troco correto a devolver.");
-    onComplete({ discount, payments: lines, change: Number(change) || 0, creditCustomer: customer.trim(), creditDueDate: dueDate });
+    onComplete({ discount, payments: lines, change: Number(change) || 0, creditCustomer: customer.trim().toLocaleUpperCase("pt-BR"), creditDueDate: dueDate });
   };
 
   return <div className="modal-backdrop checkout-backdrop"><section ref={dialogRef} className="catalog-modal checkout-modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title">

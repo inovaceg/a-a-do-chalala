@@ -126,7 +126,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   const beginProduct = (product: Product) => { const choices = availableExtras(); if (choices.length) { setCustomize({ ...product, extras: choices }); setSelectedExtras([]); } else add(product); };
   const submitCatalog = async (event: React.FormEvent) => {
     event.preventDefault();
-    const name = formName.trim();
+    const name = formName.trim().toLocaleUpperCase("pt-BR");
     const price = Number(formPrice);
     if (!name || !Number.isFinite(price) || price < 0) return;
     if (dialog === "product") {

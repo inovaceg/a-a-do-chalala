@@ -71,7 +71,7 @@ export default function SalesManagement({ active }: { active: boolean }) {
       p_sale_id: editing.id,
       p_items: items.map(item => ({ product_id: item.productId, quantity: item.quantity, extras: item.extras })),
       p_payments: payments.map(({ method, amount }) => ({ method, amount })),
-      p_credit_customer: creditCustomer.trim() || null,
+      p_credit_customer: creditCustomer.trim().toLocaleUpperCase("pt-BR") || null,
       p_credit_due_date: creditDueDate || null,
       p_change: Number(changeAmount) || 0,
     });
