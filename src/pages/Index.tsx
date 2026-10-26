@@ -224,13 +224,21 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     rows.forEach((row, index) => {
       const product = products[index];
       if (!product?.id) return;
-      let button = row.querySelector<HTMLButtonElement>(".product-status-toggle");
-      if (!button) {
-        button = document.createElement("button");
-        button.type = "button";
-        button.className = "product-status-toggle";
-        row.append(button);
+      let actions = row.querySelector<HTMLDivElement>(".product-row-actions");
+      if (!actions) {
+        actions = document.createElement("div");
+        actions.className = "product-row-actions";
+        const statusButton = document.createElement("button");
+        statusButton.type = "button";
+        statusButton.className = "product-status-toggle";
+        const editButton = document.createElement("button");
+        editButton.type = "button";
+        editButton.className = "product-edit-trigger";
+        editButton.textContent = "Alterar";
+        actions.append(statusButton, editButton);
+        row.append(actions);
       }
+      const button = actions.querySelector<HTMLButtonElement>(".product-status-toggle")!;
       button.textContent = product.is_active === false ? "Reativar" : "Inativar";
       button.setAttribute("aria-label", `${product.is_active === false ? "Reativar" : "Inativar"} ${product.name}`);
     });
