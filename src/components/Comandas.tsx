@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import "./comandas.css";
 import "./comandas-items.css";
 import "./comanda-reopen.css";
+import "./comanda-customer-search.css";
 type TabStatus = "open" | "in_consumption" | "waiting_payment" | "partially_paid" | "closed" | "cancelled";
 
 type Tab = {
@@ -30,6 +31,8 @@ type Tab = {
     opened_at: string;
     closed_at: string | null;
 };
+
+type CustomerSuggestion = { id: string; name: string; whatsapp: string; birth_date: string | null };
 
 type ProductExtra = {
     id: string;
@@ -130,6 +133,7 @@ export default function Comandas(
     const [customerWhatsapp, setCustomerWhatsapp] = useState("");
     const [customerBirthDate, setCustomerBirthDate] = useState("");
     const [customerName, setCustomerName] = useState("");
+    const [customerSuggestions, setCustomerSuggestions] = useState<CustomerSuggestion[]>([]);
     const [productId, setProductId] = useState("");
     const [orderKey, setOrderKey] = useState<string | null>(null);
     const [paymentKey, setPaymentKey] = useState<string | null>(null);
@@ -286,6 +290,23 @@ export default function Comandas(
     useEffect(() => {
         void load();
     }, [load]);
+
+    useEffect(() => {
+        const term = customerName.trim();
+        if (!openForm || term.length < 2 || customerWhatsapp) {
+            setCustomerSuggestions([]);
+            return;
+        }
+        let cancelled = false;
+        const timeout = window.setTimeout(async () => {
+            const { data } = await supabase.from("customers").select("id,name,whatsapp,birth_date").ilike("name", `%${term}%`).order("name").limit(8);
+            if (!cancelled) setCustomerSuggestions((data ?? []) as CustomerSuggestion[]);
+        }, 250);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timeout);
+        };
+    }, [customerName, customerWhatsapp, openForm]);
 
     useEffect(() => {
         if (!active) return;
@@ -847,12 +868,12 @@ export default function Comandas(
                         type="button"
                         className="comandas-icon-button"
                         onClick={() => setOpenForm(false)}
-                        aria-label="Fechar"><X size={18} /></button><span className="comandas-kicker">NOVA COMANDA</span><h3>Abrir comanda</h3><p>Informe o nome e WhatsApp do cliente. Se o número já estiver cadastrado, o cliente existente será reutilizado.</p><label>Nome completo<input
+                        aria-label="Fechar"><X size={18} /></button><span className="comandas-kicker">NOVA COMANDA</span><h3>Abrir comanda</h3><p>Informe o nome e WhatsApp do cliente. Se o número já estiver cadastrado, o cliente existente será reutilizado.</p><div className="comanda-customer-search"><label>Nome completo<input
                             required
                             maxLength={120}
                             value={customerName}
-                            onChange={event => setCustomerName(event.target.value)}
-                            placeholder="Nome do cliente" /></label><label>WhatsApp<input
+                            onChange={event => { setCustomerName(event.target.value); setCustomerWhatsapp(""); setCustomerBirthDate(""); }}
+                            placeholder="Comece a digitar o nome" /></label>{customerSuggestions.length > 0 && <div className="comanda-customer-suggestions" role="listbox" aria-label="Clientes encontrados">{customerSuggestions.map(customer => <button type="button" role="option" key={customer.id} onMouseDown={event => event.preventDefault()} onClick={() => { setCustomerName(customer.name); setCustomerWhatsapp(customer.whatsapp); setCustomerBirthDate(customer.birth_date ?? ""); setCustomerSuggestions([]); }}><b>{customer.name}</b><small>{customer.whatsapp}</small></button>)}</div>}</div><label>WhatsApp<input
                             required
                             type="tel"
                             inputMode="tel"
