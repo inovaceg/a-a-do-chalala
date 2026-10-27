@@ -126,6 +126,7 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
     setSuccess("Caixa fechado e conferência registrada.");
     onSessionChange(null);
     await load(selectedSession.id);
+    await loadDetails(selectedSession.id);
   };
 
   const filteredSessions = useMemo(() => sessions.filter(session => {
