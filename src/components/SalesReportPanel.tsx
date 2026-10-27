@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Bike, CalendarDays, CreditCard, Package, ReceiptText, Users } from "lucide-react";
+import LocalityDeliveryReport from "./LocalityDeliveryReport";
 import "./sales-report-panel.css";
 
 type ReportSale = {
@@ -14,10 +15,12 @@ type ReportSale = {
   customer_whatsapp: string | null;
   courier_id: string | null;
   courier_name?: string;
+  is_delivery?: boolean;
+  neighborhood?: string | null;
   sale_items: { product_name: string; quantity: number; line_total: number }[];
   sale_payments: { method: string; amount: number }[];
 };
-type ReportType = "daily" | "products" | "payments" | "customers" | "couriers";
+type ReportType = "daily" | "products" | "payments" | "customers" | "couriers" | "localities";
 const money = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const localDay = (value: string) => {
   const date = new Date(value);
@@ -32,6 +35,7 @@ export function SalesReportTabs({ value, onChange }: { value: ReportType; onChan
     { id: "payments", label: "Formas de pagamento", icon: CreditCard },
     { id: "customers", label: "Vendas por clientes", icon: Users },
     { id: "couriers", label: "Vendas por motoboy", icon: Bike },
+    { id: "localities", label: "Entregas por bairro", icon: Bike },
   ];
   return <div className="sales-report-tabs" role="tablist" aria-label="Relatórios de vendas">{tabs.map(tab => <button key={tab.id} role="tab" aria-selected={value === tab.id} className={value === tab.id ? "active" : ""} onClick={() => onChange(tab.id)}><tab.icon size={16}/>{tab.label}</button>)}</div>;
 }
@@ -81,6 +85,18 @@ export default function SalesReportPanel({ report, sales }: { report: ReportType
     });
     return [...groups.values()].sort((a, b) => b.total - a.total);
   }, [rangeSales]);
+  const localityRows = useMemo(() => {
+    const groups = new Map<string, { neighborhood: string; count: number; total: number }>();
+    rangeSales.filter(sale => sale.is_delivery).forEach(sale => {
+      const neighborhood = sale.neighborhood?.trim() || "Bairro não identificado";
+      const key = neighborhood.toLocaleLowerCase("pt-BR");
+      const current = groups.get(key) ?? { neighborhood, count: 0, total: 0 };
+      current.count += 1;
+      current.total += Number(sale.total);
+      groups.set(key, current);
+    });
+    return [...groups.values()].sort((a, b) => b.count - a.count || a.neighborhood.localeCompare(b.neighborhood, "pt-BR"));
+  }, [rangeSales]);
   const identifiedCustomers = useMemo(() => new Set(rangeSales.filter(sale => sale.customer_id || sale.customer_name || sale.customer_whatsapp).map(sale => sale.customer_id || `${sale.customer_name}|${sale.customer_whatsapp}`)).size, [rangeSales]);
 
   const productRows = useMemo(() => {
@@ -115,6 +131,8 @@ export default function SalesReportPanel({ report, sales }: { report: ReportType
 
   const courierTotal = courierRows.reduce((sum, courier) => sum + courier.total, 0);
   const courierSales = courierRows.reduce((sum, courier) => sum + courier.count, 0);
+
+  if (report === "localities") return <LocalityDeliveryReport sales={sales}/>;
 
   return <section className="sales-report-panel">
     <div className="sales-report-toolbar"><div><CalendarDays size={17}/><span>Período do relatório</span></div><label>De<input type="date" value={fromDate} max={toDate} onChange={event => setFromDate(event.target.value)}/></label><label>Até<input type="date" value={toDate} min={fromDate} onChange={event => setToDate(event.target.value)}/></label></div>

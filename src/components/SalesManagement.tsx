@@ -3,6 +3,7 @@ import { Ban, Pencil, Plus, Printer, RefreshCw, Trash2, X } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { supabase } from "@/integrations/supabase/client";
 import SalesReportPanel, { SalesReportTabs, type ReportType } from "./SalesReportPanel";
+import LocalityDeliveryReport from "./LocalityDeliveryReport";
 import "./sales-management.css";
 import "./sales-management-operator.css";
 import "./sales-deletion.css";
@@ -12,7 +13,7 @@ type Product = { id: string; name: string; price: number; extras: Extra[] };
 type SaleItem = { id: string; product_id: string | null; product_name: string; quantity: number; unit_price: number; extras: Extra[]; line_total: number };
 type PaymentMethod = "Dinheiro" | "Cartão de débito" | "Cartão de crédito" | "Pix" | "Vale alimentação" | "Crediário";
 type SalePayment = { id: string; method: PaymentMethod; amount: number };
-type Sale = { id: string; receipt_number: string; total: number; subtotal: number; delivery_fee?: number; discount_amount: number; change_amount: number; status: "completed" | "cancelled"; created_at: string; credit_customer: string | null; credit_due_date: string | null; customer_id: string | null; customer_name: string | null; customer_whatsapp: string | null; courier_id: string | null; courier_name?: string; is_delivery?: boolean; delivery_address?: string | null; sale_items: SaleItem[]; sale_payments: SalePayment[] };
+type Sale = { id: string; receipt_number: string; total: number; subtotal: number; delivery_fee?: number; discount_amount: number; change_amount: number; status: "completed" | "cancelled"; created_at: string; credit_customer: string | null; credit_due_date: string | null; customer_id: string | null; customer_name: string | null; customer_whatsapp: string | null; courier_id: string | null; courier_name?: string; is_delivery?: boolean; delivery_address?: string | null; neighborhood?: string | null; customers?: { neighborhood: string | null } | { neighborhood: string | null }[] | null; sale_items: SaleItem[]; sale_payments: SalePayment[] };
 type EditItem = { key: string; productId: string; quantity: number; extras: Extra[] };
 type EditPayment = { key: string; method: PaymentMethod; amount: number };
 const methods: PaymentMethod[] = ["Dinheiro", "Cartão de débito", "Cartão de crédito", "Pix", "Vale alimentação", "Crediário"];
@@ -37,7 +38,7 @@ export default function SalesManagement({ active, role }: { active: boolean; rol
   const loadSales = useCallback(async () => {
     setLoading(true);
     setError("");
-    let salesQuery = supabase.from("sales").select("id,receipt_number,total,subtotal,delivery_fee,discount_amount,change_amount,status,created_at,credit_customer,credit_due_date,customer_id,customer_name,customer_whatsapp,courier_id,is_delivery,delivery_address,sale_items(id,product_id,product_name,quantity,unit_price,extras,line_total),sale_payments(id,method,amount)").order("created_at", { ascending: false }).limit(1000);
+    let salesQuery = supabase.from("sales").select("id,receipt_number,total,subtotal,delivery_fee,discount_amount,change_amount,status,created_at,credit_customer,credit_due_date,customer_id,customer_name,customer_whatsapp,courier_id,is_delivery,delivery_address,customers(neighborhood),sale_items(id,product_id,product_name,quantity,unit_price,extras,line_total),sale_payments(id,method,amount)").order("created_at", { ascending: false }).limit(1000);
     if (role === "operator") {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (userError || !user) {
@@ -54,7 +55,7 @@ export default function SalesManagement({ active, role }: { active: boolean; rol
     ]);
     if (salesError || productsError) setError("Não foi possível carregar todas as informações de vendas. Tente novamente.");
     const courierNames = new Map((courierData ?? []).map(courier => [courier.id, courier.name]));
-    setSales(((data ?? []) as unknown as Sale[]).map(sale => ({ ...sale, courier_name: sale.courier_id ? courierNames.get(sale.courier_id) ?? "Motoboy não localizado" : "Sem motoboy" })));
+    setSales(((data ?? []) as unknown as Sale[]).map(sale => ({ ...sale, neighborhood: (Array.isArray(sale.customers) ? sale.customers[0] : sale.customers)?.neighborhood ?? null, courier_name: sale.courier_id ? courierNames.get(sale.courier_id) ?? "Motoboy não localizado" : "Sem motoboy" })));
     setProducts((productData ?? []) as Product[]);
     setLoading(false);
   }, [role]);
