@@ -7,13 +7,14 @@ import CashManagement from "@/components/CashManagement";
 import TeamManagement from "@/components/TeamManagement";
 import SalesManagement from "@/components/SalesManagement";
 import CustomerManagement from "@/components/CustomerManagement";
+import Comandas from "@/components/Comandas";
 import ExtraManagement from "@/components/ExtraManagement";
 import CatalogCostTabs from "@/components/CatalogCostTabs";
 import FinancialManagement from "@/components/FinancialManagement";
 import PrintTestControl from "@/components/PrintTestControl";
 import { supabase } from "@/integrations/supabase/client";
 import { jsPDF } from "jspdf";
-import { Activity, ArrowUpRight, Banknote, Bell, Boxes, CalendarDays, Check, ChevronDown, Clock3, Coffee, CreditCard, LayoutDashboard, Menu, Minus, Plus, Printer, Search, ShoppingBag, ShoppingCart, Users, UserCog, Wallet, LogOut, X } from "lucide-react";
+import { Activity, ArrowUpRight, Banknote, Bell, BookOpen, Boxes, CalendarDays, Check, ChevronDown, Clock3, Coffee, CreditCard, LayoutDashboard, Menu, Minus, Plus, Printer, Search, ShoppingBag, ShoppingCart, Users, UserCog, Wallet, LogOut, X } from "lucide-react";
 import "./pos-keyboard.css";
 import "./product-edit.css";
 import "./product-images.css";
@@ -36,7 +37,7 @@ const initialProducts: Product[] = [
   { name: "Açaí na Tigela", category: "Açaí • 400ml", price: 16, color: "berry", emoji: "🥣", extras: [{ name: "Morango", price: 3 }, { name: "Nutella", price: 4 }, { name: "Leite Ninho", price: 3 }] },
   { name: "Suco Natural", category: "Bebidas • 300ml", price: 9, color: "green", emoji: "🥤", extras: [] },
 ];
-const navItems = [{ label: "Visão geral", icon: LayoutDashboard }, { label: "PDV", icon: ShoppingCart }, { label: "Vendas", icon: Banknote }, { label: "Caixa", icon: Wallet }, { label: "Produtos & estoque", icon: Boxes }, { label: "Clientes", icon: Users }, { label: "Financeiro", icon: Wallet }, { label: "Cadastros", icon: UserCog }];
+const navItems = [{ label: "Visão geral", icon: LayoutDashboard }, { label: "PDV", icon: ShoppingCart }, { label: "Comandas", icon: BookOpen }, { label: "Vendas", icon: Banknote }, { label: "Caixa", icon: Wallet }, { label: "Produtos & estoque", icon: Boxes }, { label: "Clientes", icon: Users }, { label: "Financeiro", icon: Wallet }, { label: "Cadastros", icon: UserCog }];
 const money = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const productImageUrl = (path?: string | null) => path ? supabase.storage.from("product-images").getPublicUrl(path).data.publicUrl : "";
 const syncProductImage = (container: HTMLElement, product: Product) => {
@@ -60,7 +61,7 @@ const loadProducts = (): Product[] => { try { const stored = localStorage.getIte
 
 export default function Index({ role, displayName, email }: { role: "admin" | "operator"; displayName: string; email: string }) {
   const [active, setActive] = useState(role === "admin" ? "Visão geral" : "PDV");
-  const visibleNavItems = role === "admin" ? navItems : navItems.filter(item => item.label === "PDV" || item.label === "Vendas" || item.label === "Caixa" || item.label === "Clientes");
+  const visibleNavItems = role === "admin" ? navItems : navItems.filter(item => item.label === "PDV" || item.label === "Comandas" || item.label === "Vendas" || item.label === "Caixa" || item.label === "Clientes");
   const normalizedDisplayName = displayName.trim();
   const initials = normalizedDisplayName.split(" ").map(part => part[0]).slice(0,2).join("").toUpperCase();
   const [products, setProducts] = useState<Product[]>(loadProducts);
@@ -732,6 +733,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     <DashboardDataSync active={active === "Visão geral"} productCount={catalogProducts.filter(product => product.is_active !== false).length} extraCount={extras.length} />
     <DashboardDeliveries active={active === "Visão geral"} />
     <CashManagement active={active === "Caixa"} role={role} onSessionChange={session => setCashSession(session)} />
+    <Comandas active={active === "Comandas"} role={role} />
   </div>;
 }
 function ActiveIcon({ active }: { active: string }) { const Icon = active === "Clientes" ? Users : active === "Financeiro" ? Wallet : active === "Vendas" ? Banknote : Boxes; return <Icon size={27}/>; }
