@@ -93,7 +93,6 @@ export function printCashOpenReceipt(data: OpeningReceiptData, filename: string,
 
   centeredFit("AÇAÍ DO CHALALÁ", 11.5, 9.5, true);
   centeredFit("COMPROVANTE NÃO FISCAL", 8, 7.3, true);
-  divider();
   centeredFit("ABERTURA DE CAIXA", 10.5, 8.5, true);
   centeredFit("CAIXA ABERTO", 8.5, 7.5, true);
   divider();
