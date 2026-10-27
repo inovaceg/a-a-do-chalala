@@ -50,11 +50,12 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   const [dialog, setDialog] = useState<"product" | "extra" | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [customize, setCustomize] = useState<Product | null>(null);
-  const [closedSale, setClosedSale] = useState<{ items: CartItem[]; total: number; id: string; discount: number; payments: PaymentLine[]; change: number; creditCustomer: string; creditDueDate: string; customer: CouponCustomer | null; delivery: boolean; deliveryAddress: string; courier: DeliveryCourier | null } | null>(null);
+  const [closedSale, setClosedSale] = useState<{ items: CartItem[]; total: number; id: string; discount: number; payments: PaymentLine[]; change: number; creditCustomer: string; creditDueDate: string; customer: CouponCustomer | null; delivery: boolean; deliveryAddress: string; deliveryFee: number; courier: DeliveryCourier | null } | null>(null);
   const [currentSaleCustomer, setCurrentSaleCustomer] = useState<CouponCustomer | null>(null);
   const [currentSaleCourier, setCurrentSaleCourier] = useState<DeliveryCourier | null>(null);
   const [currentSaleDelivery, setCurrentSaleDelivery] = useState(false);
   const [currentDeliveryAddress, setCurrentDeliveryAddress] = useState("");
+  const [currentDeliveryFee, setCurrentDeliveryFee] = useState(0);
   const [couponStartOpen, setCouponStartOpen] = useState(false);
   const [couponStarted, setCouponStarted] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
@@ -274,11 +275,12 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
       p_delivery_address: currentDeliveryAddress || null,
       p_is_delivery: currentSaleDelivery,
       p_courier_id: currentSaleCourier?.id ?? null,
+      p_delivery_fee: currentSaleDelivery ? currentDeliveryFee : 0,
     });
     setCheckoutSaving(false);
     if (error || !data) { setNotice(error?.message.includes("discount") ? "Somente uma administradora pode aplicar desconto." : error?.message || "Não foi possível registrar a venda."); return; }
     const salePrint = { receiptNumber: data.receipt_number as string, shortOrderNumber: (String(data.receipt_number).match(/\d+$/)?.[0] ?? String(data.receipt_number)).slice(-6).padStart(6, "0"), total: Number(data.total), discount: Number(payment.discount), change: Number(payment.change), products: cart.map(item => ({ name: item.product.name, quantity: 1, extras: item.extras.map(extra => ({ name: extra.name, price: extra.price })), unit_price: Number(item.product.price), line_total: totalOf(item) })), customer: currentSaleCustomer, isDelivery: currentSaleDelivery, deliveryAddress: currentDeliveryAddress, courier: currentSaleCourier, payments: payment.payments, operator: displayName || email.split("@")[0] || "Operador" };
-    setClosedSale({ items: [...cart], total: Number(data.total), id: data.receipt_number, customer: currentSaleCustomer, courier: currentSaleCourier, delivery: currentSaleDelivery, deliveryAddress: currentDeliveryAddress, ...payment });
+    setClosedSale({ items: [...cart], total: Number(data.total), id: data.receipt_number, customer: currentSaleCustomer, courier: currentSaleCourier, delivery: currentSaleDelivery, deliveryAddress: currentDeliveryAddress, deliveryFee: Number(data.delivery_fee ?? currentDeliveryFee), ...payment });
     window.setTimeout(() => {
       void (async () => {
       const { data: { user } } = await supabase.auth.getUser();
