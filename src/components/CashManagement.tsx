@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { printCashCloseoutReceipt, printCashOpenReceipt, printCashReceipt as printBasicCashReceipt, type CloseoutReceiptData, type OpeningReceiptData } from "./CashReceipt";
 import "./cash-management.css";
 import "./cash-receipt-preview.css";
+import "./cash-session-edit.css";
 import "./cash-closeout-layout.css";
 
 type Role = "admin" | "operator";
@@ -16,6 +17,12 @@ type ReceiptPreview = { title: string; rows: string[]; filename: string; pdfUrl:
 const methods = ["Pix", "Cartão de débito", "Cartão de crédito", "Vale alimentação"];
 const money = (value: number) => Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const when = (value: string | null) => value ? new Date(value).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "—";
+const localDateTime = (value: string | null) => {
+  if (!value) return "";
+  const date = new Date(value);
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+  return date.toISOString().slice(0, 16);
+};
 
 export default function CashManagement({ active, role, onSessionChange }: { active: boolean; role: Role; onSessionChange: (session: { id: string; register_id: string } | null) => void }) {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -73,6 +80,11 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
       if (fallbackError) setError(`Não foi possível carregar os caixas físicos: ${fallbackError.message}`);
     } else {
       setRegisters((registerData ?? []) as Register[]);
+    }
+    if (role === "admin") {
+      const { data: profileData, error: profileError } = await supabase.from("profiles").select("id,display_name,role").order("display_name");
+      if (profileError) setError(`Não foi possível carregar os operadores: ${profileError.message}`);
+      setOperatorOptions((profileData ?? []) as ProfileOption[]);
     }
     if (sessionError) setError(`Não foi possível carregar o histórico de caixas: ${sessionError.message}`);
     const openOwned = loadedSessions.find(session => session.status === "open" && session.opened_by === currentUser);
@@ -204,9 +216,58 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
 
   const filteredSessions = useMemo(() => sessions.filter(session => {
     const day = session.opened_at.slice(0, 10);
-    return (!fromDate || day >= fromDate) && (!toDate || day <= toDate) && (!operatorFilter || session.opened_by === operatorFilter) && (!registerFilter || session.register_id === registerFilter);
-  }), [sessions, fromDate, toDate, operatorFilter, registerFilter]);
+    return (showArchived || !session.archived_at) && (!fromDate || day >= fromDate) && (!toDate || day <= toDate) && (!operatorFilter || session.opened_by === operatorFilter) && (!registerFilter || session.register_id === registerFilter);
+  }), [sessions, fromDate, toDate, operatorFilter, registerFilter, showArchived]);
   const operators = useMemo(() => [...new Map(sessions.map(session => [session.opened_by, session.profiles?.display_name || session.opened_by])).entries()], [sessions]);
+
+  const beginSessionEdit = (session: Session) => setEditSession({
+    ...session,
+    opened_at: localDateTime(session.opened_at),
+    closed_at: localDateTime(session.closed_at),
+  });
+
+  const saveSessionEdit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!editSession) return;
+    setSaving(true);
+    setError("");
+    const closed = editSession.status === "closed";
+    const { error: editError } = await supabase.rpc("edit_cash_session", {
+      p_session_id: editSession.id,
+      p_register_id: editSession.register_id,
+      p_opened_by: editSession.opened_by,
+      p_shift_name: editSession.shift_name.trim(),
+      p_opened_at: new Date(editSession.opened_at).toISOString(),
+      p_opening_amount: Number(editSession.opening_amount),
+      p_opening_note: editSession.opening_note,
+      p_closed_by: closed ? editSession.closed_by : null,
+      p_closed_at: closed && editSession.closed_at ? new Date(editSession.closed_at).toISOString() : null,
+      p_closing_amount: closed ? Number(editSession.closing_amount) : null,
+      p_expected_cash: closed ? Number(editSession.expected_cash) : null,
+      p_cash_difference: closed ? Number(editSession.cash_difference) : null,
+      p_non_cash_count: closed ? editSession.non_cash_count : {},
+      p_closing_note: closed ? editSession.closing_note : null,
+    });
+    setSaving(false);
+    if (editError) { setError(editError.message); return; }
+    const editedId = editSession.id;
+    setEditSession(null);
+    setSuccess("Sessão atualizada. A alteração foi registrada na auditoria.");
+    await load(editedId);
+    await loadDetails(editedId);
+  };
+
+  const setSessionArchived = async (session: Session, archived: boolean) => {
+    const action = archived ? "arquivar" : "restaurar";
+    if (!window.confirm(`Confirma ${action} esta sessão? O registro não será excluído e poderá ser restaurado.`)) return;
+    setSaving(true);
+    setError("");
+    const { error: archiveError } = await supabase.rpc("set_cash_session_archived", { p_session_id: session.id, p_archived: archived });
+    setSaving(false);
+    if (archiveError) { setError(archiveError.message); return; }
+    setSuccess(archived ? "Sessão arquivada; o registro foi preservado." : "Sessão restaurada no histórico.");
+    await load();
+  };
 
   const printCloseout = (session: Session, currentSummary = summary?.session.id === session.id ? summary : null, download = true) => {
     const paymentTotals = currentSummary?.payment_totals ?? {};
@@ -315,7 +376,7 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
         <section className="cash-card"><div className="cash-card-title"><span className="cash-icon"><History size={18}/></span><div><h3>Movimentações da sessão</h3><p>Registros históricos do turno; nenhuma linha é apagada.</p></div></div>{movements.length ? <div className="cash-movement-list">{movements.map(movement => <div key={movement.id}><span>{display(movement)}<small>{movement.note || "—"}</small></span><b className={movement.movement_type === "withdrawal" || movement.movement_type === "refund" ? "negative" : ""}>{movement.movement_type === "withdrawal" || movement.movement_type === "refund" ? "− " : "+ "}{money(Number(movement.amount))}</b><time>{when(movement.created_at)}</time></div>)}</div> : <div className="cash-empty">Nenhuma movimentação registrada.</div>}</section>
       </>}
       {selectedSession?.status === "closed" && <section className="cash-card cash-closed-summary"><div className="cash-card-title"><span className="cash-icon"><ClipboardCheck size={18}/></span><div><h3>Conferência do fechamento</h3><p>Fechado em {when(selectedSession.closed_at)}.</p></div><div className="cash-receipt-actions"><button className="cash-secondary" disabled={summary?.session.id !== selectedSession.id} onClick={() => printCloseout(selectedSession, undefined, false)}>Visualizar relatório</button><button className="cash-secondary" disabled={summary?.session.id !== selectedSession.id} onClick={() => printCloseout(selectedSession)}><Printer size={15}/> Baixar cupom PDF</button></div></div><div className="cash-method-grid"><div><span>Dinheiro esperado</span><b>{money(Number(selectedSession.expected_cash ?? 0))}</b></div><div><span>Dinheiro contado</span><b>{money(Number(selectedSession.closing_amount ?? 0))}</b></div><div><span>Diferença</span><b className={Number(selectedSession.cash_difference) < 0 ? "negative" : ""}>{money(Number(selectedSession.cash_difference ?? 0))}</b></div>{methods.map(method => <div key={method}><span>{method} contado</span><b>{money(Number(selectedSession.non_cash_count?.[method] ?? 0))}</b></div>)}</div>{selectedSession.closing_note && <p className="cash-hint">Justificativa: {selectedSession.closing_note}</p>}</section>}
-      <section className="cash-card cash-history"><div className="cash-card-title"><span className="cash-icon"><History size={18}/></span><div><h3>Histórico de sessões</h3><p>{filteredSessions.length} sessões visíveis para seu perfil.</p></div></div><div className="cash-filters"><label>De<input type="date" value={fromDate} onChange={event => setFromDate(event.target.value)}/></label><label>Até<input type="date" value={toDate} onChange={event => setToDate(event.target.value)}/></label>{role === "admin" && <><label>Operador<select value={operatorFilter} onChange={event => setOperatorFilter(event.target.value)}><option value="">Todos</option>{operators.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label><label>Terminal<select value={registerFilter} onChange={event => setRegisterFilter(event.target.value)}><option value="">Todos</option>{registers.map(register => <option key={register.id} value={register.id}>{register.name}</option>)}</select></label></>}</div>{filteredSessions.length ? <div className="cash-history-table"><table><thead><tr><th>Terminal / turno</th><th>Operador</th><th>Abertura</th><th>Fechamento</th><th>Status</th><th>Diferença</th><th>Comprovantes PDF</th><th/></tr></thead><tbody>{filteredSessions.map(session => <tr key={session.id}><td><b>{session.cash_registers?.name ?? "Caixa"}</b><small>{session.shift_name}</small></td><td>{session.profiles?.display_name ?? "—"}</td><td>{when(session.opened_at)}</td><td>{when(session.closed_at)}</td><td><span className={`cash-status ${session.status}`}>{session.status === "open" ? "Aberto" : "Fechado"}</span></td><td>{session.cash_difference === null ? "—" : money(Number(session.cash_difference))}</td><td><div className="cash-history-receipt-actions"><button className="cash-secondary" onClick={() => downloadHistoricalOpening(session)}>Abertura PDF</button>{session.status === "closed" && <button className="cash-secondary" onClick={() => void showHistoricalCloseout(session)}>Fechamento PDF</button>}</div></td><td><button className="cash-secondary" onClick={() => setSelectedId(session.id)}>Detalhes</button></td></tr>)}</tbody></table></div> : <div className="cash-empty">Nenhuma sessão no período selecionado.</div>}</section>
+      <section className="cash-card cash-history"><div className="cash-card-title"><span className="cash-icon"><History size={18}/></span><div><h3>Histórico de sessões</h3><p>{filteredSessions.length} sessões visíveis para seu perfil.</p></div></div><div className="cash-filters"><label>De<input type="date" value={fromDate} onChange={event => setFromDate(event.target.value)}/></label><label>Até<input type="date" value={toDate} onChange={event => setToDate(event.target.value)}/></label>{role === "admin" && <><label>Operador<select value={operatorFilter} onChange={event => setOperatorFilter(event.target.value)}><option value="">Todos</option>{operators.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label><label>Terminal<select value={registerFilter} onChange={event => setRegisterFilter(event.target.value)}><option value="">Todos</option>{registers.map(register => <option key={register.id} value={register.id}>{register.name}</option>)}</select></label></>}</div>{role === "admin" && <label className="cash-archive-toggle"><input type="checkbox" checked={showArchived} onChange={event => setShowArchived(event.target.checked)}/> Mostrar sessões arquivadas</label>}{filteredSessions.length ? <div className="cash-history-table"><table><thead><tr><th>Terminal / turno</th><th>Operador</th><th>Abertura</th><th>Fechamento</th><th>Status</th><th>Diferença</th><th>Comprovantes PDF</th>{role === "admin" && <th>Ações</th>}</tr></thead><tbody>{filteredSessions.map(session => <tr key={session.id}><td><b>{session.cash_registers?.name ?? "Caixa"}</b><small>{session.shift_name}</small></td><td>{session.profiles?.display_name ?? "—"}</td><td>{when(session.opened_at)}</td><td>{when(session.closed_at)}</td><td><span className={`cash-status ${session.status}`}>{session.status === "open" ? "Aberto" : "Fechado"}{session.archived_at ? " · Arquivado" : ""}</span></td><td>{session.cash_difference === null ? "—" : money(Number(session.cash_difference))}</td><td><div className="cash-history-receipt-actions"><button className="cash-secondary" onClick={() => downloadHistoricalOpening(session)}>Abertura PDF</button>{session.status === "closed" && <button className="cash-secondary" onClick={() => void showHistoricalCloseout(session)}>Fechamento PDF</button>}</div></td>{role === "admin" && <td><div className="cash-session-actions"><button className="cash-secondary" onClick={() => beginSessionEdit(session)}>Editar</button>{session.archived_at ? <button className="cash-secondary" disabled={saving} onClick={() => void setSessionArchived(session, false)}>Restaurar</button> : <button className="cash-secondary" disabled={saving || session.status === "open"} onClick={() => void setSessionArchived(session, true)}>Arquivar</button>}</div></td>}</tr>)}</tbody></table></div> : <div className="cash-empty">Nenhuma sessão no período selecionado.</div>}{editSession && <div className="cash-edit-backdrop"><section className="cash-edit-dialog" role="dialog" aria-modal="true" aria-labelledby="cash-edit-title"><header><div><span className="cash-kicker">ALTERAÇÃO AUDITADA</span><h3 id="cash-edit-title">Editar sessão de caixa</h3></div><button type="button" className="cash-secondary" onClick={() => setEditSession(null)} aria-label="Fechar">×</button></header><form onSubmit={saveSessionEdit}><div className="cash-edit-grid"><label>Terminal<select required value={editSession.register_id} onChange={event => setEditSession(current => current ? {...current,register_id:event.target.value} : null)}>{registers.map(register => <option key={register.id} value={register.id}>{register.name}</option>)}</select></label><label>Operador de abertura<select required value={editSession.opened_by} onChange={event => setEditSession(current => current ? {...current,opened_by:event.target.value} : null)}>{operatorOptions.map(profile => <option key={profile.id} value={profile.id}>{profile.display_name} · {profile.role}</option>)}</select></label><label>Turno<input required maxLength={80} value={editSession.shift_name} onChange={event => setEditSession(current => current ? {...current,shift_name:event.target.value} : null)}/></label><label>Data e horário da abertura<input required type="datetime-local" value={editSession.opened_at} onChange={event => setEditSession(current => current ? {...current,opened_at:event.target.value} : null)}/></label><label>Saldo inicial<input required type="number" min="0" step="0.01" value={editSession.opening_amount} onChange={event => setEditSession(current => current ? {...current,opening_amount:Number(event.target.value)} : null)}/></label><label>Observação de abertura<input maxLength={500} value={editSession.opening_note ?? ""} onChange={event => setEditSession(current => current ? {...current,opening_note:event.target.value} : null)}/></label>{editSession.status === "closed" && <><label>Operador do fechamento<select required value={editSession.closed_by ?? ""} onChange={event => setEditSession(current => current ? {...current,closed_by:event.target.value || null} : null)}><option value="">Selecione</option>{operatorOptions.map(profile => <option key={profile.id} value={profile.id}>{profile.display_name} · {profile.role}</option>)}</select></label><label>Data e horário do fechamento<input required type="datetime-local" value={editSession.closed_at ?? ""} onChange={event => setEditSession(current => current ? {...current,closed_at:event.target.value} : null)}/></label><label>Dinheiro contado<input required type="number" min="0" step="0.01" value={editSession.closing_amount ?? 0} onChange={event => setEditSession(current => current ? {...current,closing_amount:Number(event.target.value)} : null)}/></label><label>Dinheiro esperado<input required type="number" min="0" step="0.01" value={editSession.expected_cash ?? 0} onChange={event => setEditSession(current => current ? {...current,expected_cash:Number(event.target.value)} : null)}/></label><label>Diferença de caixa<input required type="number" step="0.01" value={editSession.cash_difference ?? 0} onChange={event => setEditSession(current => current ? {...current,cash_difference:Number(event.target.value)} : null)}/></label>{methods.map(method => <label key={method}>{method} conferido<input type="number" min="0" step="0.01" value={editSession.non_cash_count?.[method] ?? 0} onChange={event => setEditSession(current => current ? {...current,non_cash_count:{...current.non_cash_count,[method]:Number(event.target.value)}} : null)}/></label>)}<label className="cash-edit-wide">Justificativa do fechamento<textarea maxLength={1000} value={editSession.closing_note ?? ""} onChange={event => setEditSession(current => current ? {...current,closing_note:event.target.value} : null)}/></label></>}</div><p className="cash-edit-warning">A gravação atualiza o comprovante e registra os valores anteriores e novos na auditoria.</p><footer><button type="button" className="cash-secondary" onClick={() => setEditSession(null)}>Cancelar</button><button className="cash-primary" disabled={saving}>{saving ? "Salvando…" : "Salvar alterações"}</button></footer></form></section></div>}</section>
     </>}
   </section>{receiptOpen && receiptPreview && <div className="cash-receipt-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setReceiptOpen(false); }}><section className="cash-receipt-preview" role="dialog" aria-modal="true" aria-labelledby="cash-receipt-title"><header><div><span className="cash-kicker">PRÉVIA DO COMPROVANTE</span><h3 id="cash-receipt-title">{receiptPreview.title}</h3></div><button className="cash-secondary" onClick={() => setReceiptOpen(false)} aria-label="Fechar prévia"><X size={16}/></button></header><iframe className="cash-receipt-pdf" title={receiptPreview.title} src={receiptPreview.pdfUrl}/><footer><button className="cash-secondary" onClick={() => setReceiptOpen(false)}>Fechar</button><button className="cash-primary" onClick={() => printCashReceipt(receiptPreview.title, receiptPreview.rows, receiptPreview.filename)}><Printer size={15}/> Baixar cupom PDF</button></footer></section></div>}</div>;
 }
