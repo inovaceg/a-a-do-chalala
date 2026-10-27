@@ -61,7 +61,7 @@ const loadProducts = (): Product[] => { try { const stored = localStorage.getIte
 
 export default function Index({ role, displayName, email }: { role: "admin" | "operator"; displayName: string; email: string }) {
   const [active, setActive] = useState(role === "admin" ? "Visão geral" : "PDV");
-  const visibleNavItems = role === "admin" ? navItems : navItems.filter(item => item.label === "PDV" || item.label === "Comandas" || item.label === "Vendas" || item.label === "Caixa" || item.label === "Clientes");
+  const visibleNavItems = role === "admin" ? navItems : navItems.filter(item => item.label === "PDV" || item.label === "Comandas" || item.label === "Clientes");
   const normalizedDisplayName = displayName.trim();
   const initials = normalizedDisplayName.split(" ").map(part => part[0]).slice(0,2).join("").toUpperCase();
   const [products, setProducts] = useState<Product[]>(loadProducts);
