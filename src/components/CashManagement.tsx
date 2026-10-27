@@ -11,7 +11,7 @@ type Register = { id: string; name: string; is_active: boolean; is_open: boolean
 type Session = { id: string; register_id: string; opened_by: string; closed_by: string | null; status: "open" | "closed"; opening_amount: number; closing_amount: number | null; opened_at: string; closed_at: string | null; opening_note: string | null; shift_name: string; closing_note: string | null; expected_cash: number | null; cash_difference: number | null; non_cash_count: Record<string, number>; cash_registers?: { name: string } | null; profiles?: { display_name: string } | null; closers?: { display_name: string } | null };
 type Movement = { id: string; movement_type: string; amount: number; note: string | null; created_at: string; created_by: string };
 type Summary = { session: Session; payment_totals: Record<string, number>; cash_sales: number; supplies: number; withdrawals: number; refunds: number; expected_cash: number };
-type ReceiptPreview = { title: string; rows: string[]; filename: string; closeoutData?: CloseoutReceiptData; openingData?: OpeningReceiptData };
+type ReceiptPreview = { title: string; rows: string[]; filename: string; pdfUrl: string; closeoutData?: CloseoutReceiptData; openingData?: OpeningReceiptData };
 const methods = ["Pix", "Cartão de débito", "Cartão de crédito", "Vale alimentação"];
 const money = (value: number) => Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const when = (value: string | null) => value ? new Date(value).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "—";
@@ -46,6 +46,10 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
   const movementRequestKey = useRef<{ signature: string; key: string } | null>(null);
   const onSessionChangeRef = useRef(onSessionChange);
   useEffect(() => { onSessionChangeRef.current = onSessionChange; }, [onSessionChange]);
+  useEffect(() => {
+    const pdfUrl = receiptPreview?.pdfUrl;
+    return () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); };
+  }, [receiptPreview?.pdfUrl]);
 
   const load = useCallback(async (preferredId?: string) => {
     if (!active) return;
@@ -129,7 +133,8 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
       "Comprovante de controle interno",
       "Abertura registrada com sucesso",
     ];
-    const receipt: ReceiptPreview = { title: "ABERTURA DE CAIXA", rows, filename, openingData };
+    const pdfUrl = URL.createObjectURL(printCashOpenReceipt(openingData, filename, false));
+    const receipt: ReceiptPreview = { title: "ABERTURA DE CAIXA", rows, filename, openingData, pdfUrl };
     setReceiptPreview(receipt);
     return receipt;
   };
@@ -251,10 +256,10 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
       ...methods.flatMap(method => [`${method} esperado: ${money(electronicExpected[method])}`, `${method} conferido: ${money(electronicCounted[method])}`]),
       ...(session.closing_note ? [`Justificativa: ${session.closing_note}`] : []),
     ];
-    const closingReceipt: ReceiptPreview = { title: "COMPROVANTE DE FECHAMENTO DE CAIXA", rows, filename, closeoutData: receiptData };
+    const pdf = printCashCloseoutReceipt(receiptData, filename, download);
+    const closingReceipt: ReceiptPreview = { title: "COMPROVANTE DE FECHAMENTO DE CAIXA", rows, filename, closeoutData: receiptData, pdfUrl: URL.createObjectURL(pdf) };
     setReceiptPreview(closingReceipt);
-    if (download) printCashCloseoutReceipt(receiptData, filename);
-    else setReceiptOpen(true);
+    if (!download) setReceiptOpen(true);
   };
 
   const showHistoricalCloseout = async (session: Session) => {
@@ -302,5 +307,5 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
       {selectedSession?.status === "closed" && <section className="cash-card cash-closed-summary"><div className="cash-card-title"><span className="cash-icon"><ClipboardCheck size={18}/></span><div><h3>Conferência do fechamento</h3><p>Fechado em {when(selectedSession.closed_at)}.</p></div><div className="cash-receipt-actions"><button className="cash-secondary" disabled={summary?.session.id !== selectedSession.id} onClick={() => printCloseout(selectedSession, undefined, false)}>Visualizar relatório</button><button className="cash-secondary" disabled={summary?.session.id !== selectedSession.id} onClick={() => printCloseout(selectedSession)}><Printer size={15}/> Baixar cupom PDF</button></div></div><div className="cash-method-grid"><div><span>Dinheiro esperado</span><b>{money(Number(selectedSession.expected_cash ?? 0))}</b></div><div><span>Dinheiro contado</span><b>{money(Number(selectedSession.closing_amount ?? 0))}</b></div><div><span>Diferença</span><b className={Number(selectedSession.cash_difference) < 0 ? "negative" : ""}>{money(Number(selectedSession.cash_difference ?? 0))}</b></div>{methods.map(method => <div key={method}><span>{method} contado</span><b>{money(Number(selectedSession.non_cash_count?.[method] ?? 0))}</b></div>)}</div>{selectedSession.closing_note && <p className="cash-hint">Justificativa: {selectedSession.closing_note}</p>}</section>}
       <section className="cash-card cash-history"><div className="cash-card-title"><span className="cash-icon"><History size={18}/></span><div><h3>Histórico de sessões</h3><p>{filteredSessions.length} sessões visíveis para seu perfil.</p></div></div><div className="cash-filters"><label>De<input type="date" value={fromDate} onChange={event => setFromDate(event.target.value)}/></label><label>Até<input type="date" value={toDate} onChange={event => setToDate(event.target.value)}/></label>{role === "admin" && <><label>Operador<select value={operatorFilter} onChange={event => setOperatorFilter(event.target.value)}><option value="">Todos</option>{operators.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label><label>Terminal<select value={registerFilter} onChange={event => setRegisterFilter(event.target.value)}><option value="">Todos</option>{registers.map(register => <option key={register.id} value={register.id}>{register.name}</option>)}</select></label></>}</div>{filteredSessions.length ? <div className="cash-history-table"><table><thead><tr><th>Terminal / turno</th><th>Operador</th><th>Abertura</th><th>Fechamento</th><th>Status</th><th>Diferença</th><th>Comprovantes</th><th/></tr></thead><tbody>{filteredSessions.map(session => <tr key={session.id}><td><b>{session.cash_registers?.name ?? "Caixa"}</b><small>{session.shift_name}</small></td><td>{session.profiles?.display_name ?? "—"}</td><td>{when(session.opened_at)}</td><td>{when(session.closed_at)}</td><td><span className={`cash-status ${session.status}`}>{session.status === "open" ? "Aberto" : "Fechado"}</span></td><td>{session.cash_difference === null ? "—" : money(Number(session.cash_difference))}</td><td><div className="cash-history-receipt-actions"><button className="cash-secondary" onClick={() => showOpeningReceipt(session)}>Abertura</button>{session.status === "closed" && <button className="cash-secondary" onClick={() => void showHistoricalCloseout(session)}>Fechamento</button>}</div></td><td><button className="cash-secondary" onClick={() => setSelectedId(session.id)}>Detalhes</button></td></tr>)}</tbody></table></div> : <div className="cash-empty">Nenhuma sessão no período selecionado.</div>}</section>
     </>}
-  </section>{receiptOpen && receiptPreview && <div className="cash-receipt-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setReceiptOpen(false); }}><section className="cash-receipt-preview" role="dialog" aria-modal="true" aria-labelledby="cash-receipt-title"><header><div><span className="cash-kicker">PRÉVIA DO COMPROVANTE</span><h3 id="cash-receipt-title">{receiptPreview.title}</h3></div><button className="cash-secondary" onClick={() => setReceiptOpen(false)} aria-label="Fechar prévia"><X size={16}/></button></header><div className="cash-receipt-paper"><h4>{receiptPreview.title}</h4><pre>{receiptPreview.rows.join(String.fromCharCode(10))}</pre></div><footer><button className="cash-secondary" onClick={() => setReceiptOpen(false)}>Fechar</button><button className="cash-primary" onClick={() => printCashReceipt(receiptPreview.title, receiptPreview.rows, receiptPreview.filename)}><Printer size={15}/> Baixar cupom PDF</button></footer></section></div>}</div>;
+  </section>{receiptOpen && receiptPreview && <div className="cash-receipt-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setReceiptOpen(false); }}><section className="cash-receipt-preview" role="dialog" aria-modal="true" aria-labelledby="cash-receipt-title"><header><div><span className="cash-kicker">PRÉVIA DO COMPROVANTE</span><h3 id="cash-receipt-title">{receiptPreview.title}</h3></div><button className="cash-secondary" onClick={() => setReceiptOpen(false)} aria-label="Fechar prévia"><X size={16}/></button></header><iframe className="cash-receipt-pdf" title={receiptPreview.title} src={receiptPreview.pdfUrl}/><footer><button className="cash-secondary" onClick={() => setReceiptOpen(false)}>Fechar</button><button className="cash-primary" onClick={() => printCashReceipt(receiptPreview.title, receiptPreview.rows, receiptPreview.filename)}><Printer size={15}/> Baixar cupom PDF</button></footer></section></div>}</div>;
 }

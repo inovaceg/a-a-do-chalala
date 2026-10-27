@@ -31,7 +31,7 @@ export type OpeningReceiptData = {
   openingNote?: string | null;
 };
 
-export function printCashOpenReceipt(data: OpeningReceiptData, filename: string) {
+export function printCashOpenReceipt(data: OpeningReceiptData, filename: string, download = true) {
   const width = data.paperWidth;
   const margin = width === 58 ? 4 : 5;
   const contentWidth = width - margin * 2;
@@ -122,7 +122,9 @@ export function printCashOpenReceipt(data: OpeningReceiptData, filename: string)
   divider();
   y += draw("Comprovante de controle interno", margin, y, contentWidth, fontSize, false, "center");
   y += draw("Abertura registrada com sucesso", margin, y + 0.6, contentWidth, fontSize, true, "center");
-  doc.save(filename);
+  const pdf = doc.output("blob");
+  if (download) doc.save(filename);
+  return pdf;
 }
 
 export type CloseoutReceiptData = {
@@ -157,7 +159,7 @@ type ReceiptBlock =
 
 const receiptMoney = (value: number) => Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export function printCashCloseoutReceipt(data: CloseoutReceiptData, filename: string) {
+export function printCashCloseoutReceipt(data: CloseoutReceiptData, filename: string, download = true) {
   const electronicMethods = ["Pix", "Cartão de débito", "Cartão de crédito", "Vale alimentação"];
   const electronicDifferences = electronicMethods.map(method => Number(data.electronicCounted[method] ?? 0) - Number(data.electronicExpected[method] ?? 0));
   const hasElectronicDifference = electronicDifferences.some(difference => Math.abs(difference) > 0.01);
@@ -292,6 +294,7 @@ export function printCashCloseoutReceipt(data: CloseoutReceiptData, filename: st
     y += block.prominent ? 0.8 : 0.25;
   });
 
-  doc.save(filename);
-  return { status, totalReceived, hasElectronicDifference };
+  const pdf = doc.output("blob");
+  if (download) doc.save(filename);
+  return pdf;
 }
