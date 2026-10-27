@@ -146,12 +146,12 @@ export default function Comandas(
     const [filter, setFilter] = useState("all");
     const selectedProduct = products.find(product => product.id === productId);
 
-    const load = useCallback(async () => {
+    const load = useCallback(async (silent = false) => {
         if (!active)
             return;
 
-        setLoading(true);
-        setError("");
+        if (!silent) setLoading(true);
+        if (!silent) setError("");
 
         const {
             data: auth
@@ -161,7 +161,7 @@ export default function Comandas(
 
         if (!user) {
             setError("Sessão não encontrada.");
-            setLoading(false);
+            if (!silent) setLoading(false);
             return;
         }
 
@@ -259,7 +259,7 @@ export default function Comandas(
             setPaidBalances(new Map());
         }
 
-        setLoading(false);
+        if (!silent) setLoading(false);
     }, [active, role]);
 
     const loadDetail = useCallback(async (tab: Tab) => {
@@ -294,17 +294,22 @@ export default function Comandas(
     }, [load]);
 
     useEffect(() => {
-        if (active) {
-            const channel = supabase.channel("tabs-live").on("postgres_changes", {
-                event: "*",
-                schema: "public",
-                table: "tabs"
-            }, () => void load()).subscribe();
-
-            return () => {
-                void supabase.removeChannel(channel);
-            };
-        }
+        if (!active) return;
+        const channel = supabase.channel("tabs-live").on("postgres_changes", {
+            event: "*",
+            schema: "public",
+            table: "tabs"
+        }, () => void load(true)).subscribe();
+        const interval = window.setInterval(() => {
+            if (!document.hidden) void load(true);
+        }, 4000);
+        const refreshOnFocus = () => void load(true);
+        window.addEventListener("focus", refreshOnFocus);
+        return () => {
+            window.clearInterval(interval);
+            window.removeEventListener("focus", refreshOnFocus);
+            void supabase.removeChannel(channel);
+        };
     }, [active, load]);
 
     const activeTabs = tabs.filter(tab => activeStatuses.includes(tab.status));
