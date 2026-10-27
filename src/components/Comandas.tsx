@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, ClipboardList, Plus, RefreshCw, Search, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import "./comandas.css";
+import "./comandas-items.css";
 
 type TabStatus = "open" | "in_consumption" | "waiting_payment" | "partially_paid" | "closed" | "cancelled";
 type Tab = { id: string; store_id: string; tab_number: number; customer_id: string | null; customer_name: string | null; status: TabStatus; opened_by: string; terminal: string | null; opened_at: string; closed_at: string | null };
@@ -33,13 +34,14 @@ export default function Comandas({ active, role }: { active: boolean; role: "adm
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("active");
   const [sortNewest, setSortNewest] = useState(true);
   const [openForm, setOpenForm] = useState(false);
   const [number, setNumber] = useState("");
   const [customerId, setCustomerId] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [productId, setProductId] = useState("");
+  const [orderKey, setOrderKey] = useState<string | null>(null);
+  const [paymentKey, setPaymentKey] = useState<string | null>(null);
   const [quantity, setQuantity] = useState("1");
   const [note, setNote] = useState("");
   const [extraIds, setExtraIds] = useState<string[]>([]);
@@ -112,6 +114,15 @@ export default function Comandas({ active, role }: { active: boolean; role: "adm
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (active) { const channel = supabase.channel("tabs-live").on("postgres_changes", { event: "*", schema: "public", table: "tabs" }, () => void load()).subscribe(); return () => { void supabase.removeChannel(channel); }; } }, [active, load]);
+  useEffect(() => {
+    setPaymentChange(paymentMethod === "Dinheiro" ? Math.max(0, Number(paymentAmount) - due).toFixed(2) : "0.00");
+    const fields = document.querySelectorAll<HTMLInputElement>(".comanda-payment-form input[type=number]");
+    if (fields[0]) {
+      if (paymentMethod === "Dinheiro") fields[0].removeAttribute("max");
+      else fields[0].max = String(due);
+    }
+    if (fields[1]) fields[1].readOnly = true;
+  }, [paymentAmount, paymentMethod, due, selected]);
 
   const filteredTabs = useMemo(() => {
     const term = search.trim().toLocaleLowerCase("pt-BR");
@@ -138,23 +149,49 @@ export default function Comandas({ active, role }: { active: boolean; role: "adm
     if (!selected || !selectedProduct) return;
     const chosenExtras = (selectedProduct.extras ?? []).filter(extra => extraIds.includes(extra.id));
     setSaving(true); setError("");
-    const { error: requestError } = await supabase.rpc("add_tab_order", { p_tab_id: selected.id, p_idempotency_key: crypto.randomUUID(), p_items: [{ product_id: selectedProduct.id, quantity: Number(quantity), extras: chosenExtras, note: note.trim() }] });
+    const idempotencyKey = orderKey ?? crypto.randomUUID();
+    setOrderKey(idempotencyKey);
+    const { error: requestError } = await supabase.rpc("add_tab_order", { p_tab_id: selected.id, p_idempotency_key: idempotencyKey, p_items: [{ product_id: selectedProduct.id, quantity: Number(quantity), extras: chosenExtras, note: note.trim() }] });
     setSaving(false);
     if (requestError) { setError("Não foi possível adicionar os itens à comanda."); return; }
-    setProductId(""); setQuantity("1"); setExtraIds([]); setNote(""); await load(); const updated = tabs.find(tab => tab.id === selected.id); await loadDetail(updated ? { ...updated, status: "in_consumption" } : { ...selected, status: "in_consumption" });
+    setOrderKey(null); setProductId(""); setQuantity("1"); setExtraIds([]); setNote(""); await load(); const nextStatus = selected.status === "partially_paid" ? "partially_paid" : "in_consumption"; await loadDetail({ ...selected, status: nextStatus });
   };
 
   const receivePayment = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selected || !cashSessionId) { setError("É necessário estar com um caixa aberto para receber pagamento."); return; }
-    const amount = Number(paymentAmount);
-    const change = Number(paymentChange) || 0;
-    if (!amount || amount <= 0 || amount > due || change < 0 || (change > 0 && paymentMethod !== "Dinheiro")) { setError("Confira o valor do pagamento, o saldo pendente e o troco."); return; }
+    const tender = Number(paymentAmount);
+    const amount = Math.min(tender, due);
+    const change = paymentMethod === "Dinheiro" ? Math.max(0, tender - due) : 0;
+    if (!tender || tender <= 0 || (tender > due && paymentMethod !== "Dinheiro")) { setError("Confira o valor recebido e o saldo pendente."); return; }
     setSaving(true); setError("");
-    const { error: requestError } = await supabase.rpc("record_tab_payment", { p_tab_id: selected.id, p_cash_session_id: cashSessionId, p_method: paymentMethod, p_amount: amount, p_change_amount: change, p_idempotency_key: crypto.randomUUID() });
+    const idempotencyKey = paymentKey ?? crypto.randomUUID();
+    setPaymentKey(idempotencyKey);
+    const { error: requestError } = await supabase.rpc("record_tab_payment", { p_tab_id: selected.id, p_cash_session_id: cashSessionId, p_method: paymentMethod, p_amount: amount, p_change_amount: change, p_idempotency_key: idempotencyKey });
     setSaving(false);
     if (requestError) { setError("Pagamento não registrado. Verifique se o caixa continua aberto."); return; }
-    setPaymentAmount(""); setPaymentChange("0"); await load(); const updated = tabs.find(tab => tab.id === selected.id); await loadDetail(updated ? { ...updated, status: amount >= due ? "closed" : "partially_paid" } : selected);
+    setPaymentKey(null); setPaymentAmount(""); setPaymentChange("0"); await load(); const nextStatus = amount >= due ? "closed" : "partially_paid"; const nextTab = { ...selected, status: nextStatus as TabStatus, closed_at: nextStatus === "closed" ? new Date().toISOString() : selected.closed_at }; setSelected(nextTab); await loadDetail(nextTab);
+  };
+
+  const changeItemQuantity = async (item: Item, nextQuantity: number) => {
+    if (!selected || saving) return;
+    if (nextQuantity < 1) return;
+    setSaving(true); setError("");
+    const { error: requestError } = await supabase.rpc("edit_tab_item_quantity", { p_item_id: item.id, p_quantity: nextQuantity });
+    setSaving(false);
+    if (requestError) { setError("A quantidade não pôde ser alterada. Apenas itens ainda não enviados podem ser editados."); return; }
+    await load(); await loadDetail(selected);
+  };
+
+  const cancelItem = async (item: Item) => {
+    if (!selected || role !== "admin") return;
+    const reason = window.prompt(`Informe o motivo para cancelar ${item.product_name}:`);
+    if (!reason?.trim()) return;
+    setSaving(true); setError("");
+    const { error: requestError } = await supabase.rpc("cancel_tab_item", { p_item_id: item.id, p_reason: reason.trim() });
+    setSaving(false);
+    if (requestError) { setError("O item não pôde ser cancelado. Verifique pagamentos e tente novamente."); return; }
+    await load(); await loadDetail(selected);
   };
 
   const sendToProduction = async (order: Order, reprint = false) => {
@@ -173,7 +210,7 @@ export default function Comandas({ active, role }: { active: boolean; role: "adm
     <div className="comandas-toolbar"><label><Search size={16}/><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar número ou nome do cliente"/></label><select value={filter} onChange={event => setFilter(event.target.value)}><option value="all">Todas</option><option value="active">Abertas e pendentes</option>{Object.entries(labels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><button title={sortNewest ? "Mais antigas primeiro" : "Mais recentes primeiro"} onClick={() => setSortNewest(value => !value)}>{sortNewest ? <ArrowDownWideNarrow size={17}/> : <ArrowUpNarrowWide size={17}/>}</button><button title="Atualizar comandas" onClick={() => void load()}><RefreshCw size={16}/></button></div>
     {loading ? <div className="comandas-empty">Carregando comandas…</div> : filteredTabs.length ? <div className="comandas-grid">{filteredTabs.map(tab => <button key={tab.id} className={`comanda-card ${selected?.id === tab.id ? "selected" : ""}`} onClick={() => void loadDetail(tab)}><span className={`comanda-status status-${tab.status}`}>{labels[tab.status]}</span><b className="comanda-number">#{tab.tab_number}</b><span className="comanda-customer">{tab.customer_name || "Sem identificação"}</span><small>{new Date(tab.opened_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })} · {operatorNames.get(tab.opened_by) ?? "Equipe"}</small></button>)}</div> : <div className="comandas-empty"><ClipboardList size={30}/><b>Nenhuma comanda nesta visualização</b><span>Abra uma comanda para começar a registrar o consumo.</span></div>}
     {selected && <section className="comanda-detail"><header><div><span className="comandas-kicker">DETALHES</span><h3>Comanda #{selected.tab_number} <small>{selected.customer_name || "Sem identificação"}</small></h3></div><button className="comandas-icon-button" onClick={() => setSelected(null)} aria-label="Fechar detalhes"><X size={18}/></button></header>
-      <div className="comanda-items">{orders.map(order => <article className="comanda-order" key={order.id}><div className="comanda-order-head"><b>Pedido · {new Date(order.created_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</b><div><button onClick={() => void sendToProduction(order, Boolean(order.production_sent_at))}>{order.production_sent_at ? "Reimprimir" : "Enviar à produção"}</button></div></div>{items.filter(item => item.order_id === order.id).map(item => <div className={`comanda-item ${item.status === "cancelled" ? "cancelled" : ""}`} key={item.id}><span>{item.quantity}× {item.product_name}{item.extras.map(extra => <small key={extra.id}>+ {extra.name}</small>)}{item.note && <small>Obs.: {item.note}</small>}</span><b>{money(totalOf(item))}</b></div>)}</article>)}</div>
+      <div className="comanda-items">{orders.map(order => <article className="comanda-order" key={order.id}><div className="comanda-order-head"><b>Pedido · {new Date(order.created_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</b><div><button onClick={() => void sendToProduction(order, Boolean(order.production_sent_at))}>{order.production_sent_at ? "Reimprimir" : "Enviar à produção"}</button></div></div>{items.filter(item => item.order_id === order.id).map(item => <div className={`comanda-item ${item.status === "cancelled" ? "cancelled" : ""}`} key={item.id}><span>{item.quantity}× {item.product_name}{item.extras.map(extra => <small key={extra.id}>+ {extra.name}</small>)}{item.note && <small>Obs.: {item.note}</small>}</span><b>{money(totalOf(item))}</b>{item.status === "active" && !order.production_sent_at && activeStatuses.includes(selected.status) && <div className="comanda-item-actions"><button disabled={saving || item.quantity <= 1} onClick={() => void changeItemQuantity(item, item.quantity - 1)} aria-label="Diminuir quantidade">−</button><button disabled={saving} onClick={() => void changeItemQuantity(item, item.quantity + 1)} aria-label="Aumentar quantidade">+</button>{role === "admin" && <button className="comanda-cancel-item" disabled={saving} onClick={() => void cancelItem(item)}>Cancelar item</button>}</div>}</div>)}</article>)}</div>
       {activeStatuses.includes(selected.status) && <form className="comanda-add-form" onSubmit={addOrder}><h4>Adicionar itens</h4><select required value={productId} onChange={event => { setProductId(event.target.value); setExtraIds([]); }}><option value="">Selecione um produto</option>{products.map(product => <option value={product.id} key={product.id}>{product.name} · {money(Number(product.price))}</option>)}</select>{selectedProduct?.extras?.length ? <div className="comanda-extras">{selectedProduct.extras.map(extra => <label key={extra.id}><input type="checkbox" checked={extraIds.includes(extra.id)} onChange={event => setExtraIds(ids => event.target.checked ? [...ids, extra.id] : ids.filter(id => id !== extra.id))}/>{extra.name} + {money(Number(extra.price))}</label>)}</div> : null}<div className="comanda-form-row"><label>Quantidade<input type="number" min="1" max="99" value={quantity} onChange={event => setQuantity(event.target.value)}/></label><label>Observação<input maxLength={300} value={note} onChange={event => setNote(event.target.value)} placeholder="Sem açúcar, por exemplo"/></label></div><button className="comandas-primary" disabled={saving || !selectedProduct}><Plus size={15}/> Adicionar pedido</button></form>}
       <div className="comanda-totals"><span>Consumo <b>{money(tabTotal)}</b></span><span>Recebido <b>{money(paidTotal)}</b></span><strong>Saldo <b>{money(due)}</b></strong></div>
       {due > 0 && activeStatuses.includes(selected.status) && <form className="comanda-payment-form" onSubmit={receivePayment}><h4>Receber pagamento</h4>{!cashSessionId && <p className="comandas-warning">Abra o caixa para registrar recebimentos.</p>}<div className="comanda-form-row"><label>Forma<select value={paymentMethod} onChange={event => setPaymentMethod(event.target.value)}>{cashMethods.map(method => <option key={method}>{method}</option>)}</select></label><label>Valor a aplicar<input type="number" min="0.01" max={due} step="0.01" required value={paymentAmount} onChange={event => setPaymentAmount(event.target.value)} placeholder={`Saldo ${money(due)}`}/></label>{paymentMethod === "Dinheiro" && <label>Troco<input type="number" min="0" step="0.01" value={paymentChange} onChange={event => setPaymentChange(event.target.value)}/></label>}</div><button className="comandas-primary" disabled={saving || !cashSessionId}><Plus size={15}/>{saving ? "Registrando…" : "Registrar pagamento"}</button></form>}
