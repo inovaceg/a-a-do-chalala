@@ -9,6 +9,7 @@ import "./finance-report-layout.css";
 type FinancialTab = "overview" | "income" | "expenses";
 type RangePreset = "today" | "yesterday" | "7days" | "month" | "custom";
 type Payment = { id: string; method: string; amount: number };
+type TabPayment = { id: string; method: string; amount: number; change_amount: number; received_at: string; created_by: string; tab_id: string; tabs: { tab_number: number; customer_name: string | null } };
 type Receipt = { id: string; receipt_number: string; customer_name: string | null; created_by: string; created_at: string; status: "completed" | "cancelled"; total: number; change_amount: number; sale_payments: Payment[] };
 type IndividualIncome = { id: string; description: string; category: string; customer_name: string | null; amount: number; received_at: string; payment_method: string; notes: string | null; created_by: string };
 type Expense = { id: string; description: string; category: string; supplier: string | null; amount: number; due_date: string; paid_at: string | null; payment_method: string | null; status: "pending" | "paid" | "cancelled"; notes: string | null; created_by: string; updated_by: string; created_at: string };
@@ -30,6 +31,7 @@ export default function FinancialManagement({ active }: { active: boolean }) {
   const [from, setFrom] = useState(startMonth);
   const [to, setTo] = useState(todayKey);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [tabPayments, setTabPayments] = useState<TabPayment[]>([]);
   const [individualIncomes, setIndividualIncomes] = useState<IndividualIncome[]>([]);
   const [openReceivableTotal, setOpenReceivableTotal] = useState(0);
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -71,6 +73,9 @@ export default function FinancialManagement({ active }: { active: boolean }) {
     ]);
     if (receiptError || incomeError || expenseError || profileError || receivableError || categoryError) setError("Não foi possível carregar todos os dados financeiros. Tente atualizar.");
     setReceipts((receiptData ?? []) as unknown as Receipt[]);
+    const { data: tabPaymentData, error: tabPaymentError } = await supabase.from("tab_payments").select("id,method,amount,change_amount,received_at,created_by,tab_id,tabs!inner(tab_number,customer_name)").gte("received_at", fromDate).lt("received_at", toExclusive.toISOString()).order("received_at", { ascending: false }).limit(5000);
+    if (tabPaymentError) setError("Não foi possível carregar pagamentos de comandas.");
+    setTabPayments((tabPaymentData ?? []) as unknown as TabPayment[]);
     setIndividualIncomes((incomeData ?? []) as IndividualIncome[]);
     setOpenReceivableTotal((receivableData ?? []).reduce((sum, payment) => sum + Number(payment.amount), 0));
     setExpenses((expenseData ?? []) as Expense[]);
@@ -90,7 +95,7 @@ export default function FinancialManagement({ active }: { active: boolean }) {
     const cashPayments = sale.sale_payments.filter(payment => payment.method === "Dinheiro");
     const otherPayments = sale.sale_payments.filter(payment => payment.method !== "Dinheiro" && payment.method !== "Crediário");
     return sum + otherPayments.reduce((total, payment) => total + Number(payment.amount), 0) + Math.max(0, cashPayments.reduce((total, payment) => total + Number(payment.amount), 0) - Number(sale.change_amount));
-  }, 0) + individualIncomes.reduce((sum, income) => sum + Number(income.amount), 0), [completedSales, individualIncomes]);
+  }, 0) + tabPayments.reduce((sum, payment) => sum + Number(payment.amount), 0) + individualIncomes.reduce((sum, income) => sum + Number(income.amount), 0), [completedSales, tabPayments, individualIncomes]);
   const periodExpenses = useMemo(() => expenses.filter(expense => expense.status === "paid" && expense.paid_at && dateKey(new Date(expense.paid_at)) >= from && dateKey(new Date(expense.paid_at)) <= to), [expenses, from, to]);
   const paidOut = useMemo(() => periodExpenses.reduce((sum, expense) => sum + Number(expense.amount), 0), [periodExpenses]);
   const openPayables = useMemo(() => expenses.filter(expense => expense.status === "pending").reduce((sum, expense) => sum + Number(expense.amount), 0), [expenses]);
@@ -124,8 +129,9 @@ export default function FinancialManagement({ active }: { active: boolean }) {
         return { date: dateLabel(sale.created_at), description: `Venda #${sale.receipt_number}`, category: "VENDAS", customer: sale.customer_name ?? "Cliente avulso", method: payment.method, amount: Math.max(amount, 0), status: "Recebida" };
       }).filter(row => row.amount > 0);
     }),
+    ...tabPayments.map(payment => ({ date: dateLabel(payment.received_at), description: `Comanda #${payment.tabs.tab_number}`, category: "COMANDAS", customer: payment.tabs.customer_name ?? "Cliente não identificado", method: payment.method, amount: Number(payment.amount), status: "Recebida" })),
     ...individualIncomes.map(income => ({ date: dateLabel(income.received_at), description: income.description, category: income.category, customer: income.customer_name ?? "", method: income.payment_method, amount: Number(income.amount), status: "Recebida" })),
-  ], [completedSales, individualIncomes]);
+  ], [completedSales, tabPayments, individualIncomes]);
   const reportExpenses = useMemo<ReportRow[]>(() => expenses.filter(expense => (expense.paid_at && dateKey(new Date(expense.paid_at)) >= from && dateKey(new Date(expense.paid_at)) <= to) || (expense.due_date >= from && expense.due_date <= to)).map(expense => ({ date: expense.paid_at ? dateLabel(expense.paid_at) : new Date(`${expense.due_date}T12:00:00`).toLocaleDateString("pt-BR"), description: expense.description, category: expense.category, customer: expense.supplier ?? "", method: expense.payment_method ?? "", amount: Number(expense.amount), status: expense.status === "pending" ? "Pendente" : expense.status === "paid" ? "Paga" : "Cancelada" })), [expenses, from, to]);
   if (!active) return null;
 
