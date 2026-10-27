@@ -2,12 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, MapPin, MessageCircle, Pencil, Plus, Search, UserRound, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import "./customer-management.css";
+import "./customer-personal-fields.css";
 import "./customer-marketing.css";
 
 type Customer = {
   id: string;
   name: string;
   whatsapp: string;
+  gender: string | null;
+  birth_date: string | null;
   street: string | null;
   address_number: string | null;
   neighborhood: string | null;
@@ -18,7 +21,7 @@ type Customer = {
 };
 type CustomerForm = Omit<Customer, "id">;
 type FavoriteItem = { name: string; quantity: number };
-const emptyForm: CustomerForm = { name: "", whatsapp: "", street: "", address_number: "", neighborhood: "", city: "", address_complement: "", postal_code: "", marketing_opt_out: false };
+const emptyForm: CustomerForm = { name: "", whatsapp: "", gender: "", birth_date: "", street: "", address_number: "", neighborhood: "", city: "", address_complement: "", postal_code: "", marketing_opt_out: false };
 const optionalFields: { name: Exclude<keyof CustomerForm, "marketing_opt_out">; label: string; placeholder: string }[] = [
   { name: "street", label: "Rua", placeholder: "Nome da rua" },
   { name: "address_number", label: "Número", placeholder: "Número" },
@@ -55,7 +58,7 @@ export default function CustomerManagement({ active }: { active: boolean }) {
   const loadCustomers = useCallback(async () => {
     setLoading(true);
     const [{ data, error: requestError }, { data: consumptionData, error: salesError }] = await Promise.all([
-      supabase.from("customers").select("id,name,whatsapp,street,address_number,neighborhood,city,address_complement,postal_code,marketing_opt_out").order("name"),
+      supabase.from("customers").select("id,name,whatsapp,gender,birth_date,street,address_number,neighborhood,city,address_complement,postal_code,marketing_opt_out").order("name"),
       supabase.rpc("customer_item_consumption"),
     ]);
     if (requestError) setError("Não foi possível carregar os clientes.");
@@ -84,6 +87,34 @@ export default function CustomerManagement({ active }: { active: boolean }) {
   }, [active, loadCustomers]);
 
   useEffect(() => {
+    if (!formOpen) return;
+    const grid = document.querySelector<HTMLElement>(".customer-form-grid");
+    const whatsapp = grid?.querySelector(".customer-field:nth-child(2)");
+    if (!grid || !whatsapp) return;
+    const fields = document.createElement("div");
+    fields.className = "customer-personal-fields";
+    const genderLabel = document.createElement("label");
+    genderLabel.className = "customer-field";
+    genderLabel.append("Gênero");
+    const gender = document.createElement("select");
+    gender.innerHTML = '<option value="">Não informado</option><option value="Feminino">Feminino</option><option value="Masculino">Masculino</option><option value="Outro">Outro</option><option value="Prefiro não informar">Prefiro não informar</option>';
+    gender.value = form.gender ?? "";
+    gender.addEventListener("change", () => updateField("gender", gender.value));
+    genderLabel.append(gender);
+    const birthLabel = document.createElement("label");
+    birthLabel.className = "customer-field";
+    birthLabel.append("Data de nascimento");
+    const birthDate = document.createElement("input");
+    birthDate.type = "date";
+    birthDate.value = form.birth_date ?? "";
+    birthDate.addEventListener("change", () => updateField("birth_date", birthDate.value));
+    birthLabel.append(birthDate);
+    fields.append(genderLabel, birthLabel);
+    whatsapp.after(fields);
+    return () => fields.remove();
+  }, [formOpen, editing]);
+
+  useEffect(() => {
     const panel = document.querySelector<HTMLElement>(".customer-management");
     panel?.classList.toggle("showing-consumption", activeTab === "consumption");
   }, [active, activeTab]);
@@ -101,6 +132,8 @@ export default function CustomerManagement({ active }: { active: boolean }) {
     setForm(customer ? {
       name: customer.name,
       whatsapp: customer.whatsapp,
+      gender: customer.gender ?? "",
+      birth_date: customer.birth_date ?? "",
       street: customer.street ?? "",
       address_number: customer.address_number ?? "",
       neighborhood: customer.neighborhood ?? "",
@@ -117,6 +150,8 @@ export default function CustomerManagement({ active }: { active: boolean }) {
     const payload: CustomerForm = {
       name: form.name.trim().toLocaleUpperCase("pt-BR"),
       whatsapp: form.whatsapp.trim(),
+      gender: form.gender || null,
+      birth_date: form.birth_date || null,
       street: form.street?.trim().toLocaleUpperCase("pt-BR") || null,
       address_number: form.address_number?.trim().toLocaleUpperCase("pt-BR") || null,
       neighborhood: form.neighborhood?.trim().toLocaleUpperCase("pt-BR") || null,
@@ -142,7 +177,7 @@ export default function CustomerManagement({ active }: { active: boolean }) {
     await loadCustomers();
   };
 
-  const updateField = (field: Exclude<keyof CustomerForm, "marketing_opt_out">, value: string) => setForm(current => ({ ...current, [field]: field === "whatsapp" || field === "postal_code" ? value : value.toLocaleUpperCase("pt-BR") }));
+  const updateField = (field: Exclude<keyof CustomerForm, "marketing_opt_out">, value: string) => setForm(current => ({ ...current, [field]: ["whatsapp", "postal_code", "gender", "birth_date"].includes(field) ? value : value.toLocaleUpperCase("pt-BR") }));
   const address = (customer: Customer) => [customer.street, customer.address_number, customer.address_complement, customer.neighborhood, customer.city, customer.postal_code].filter(Boolean).join(" · ");
   const startMarketingPreview = (customer: Customer) => {
     const favorites = consumption.get(customer.id) ?? [];
