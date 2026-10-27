@@ -37,7 +37,7 @@ export function printCashOpenReceipt(data: OpeningReceiptData, filename: string)
   const contentWidth = width - margin * 2;
   const fontSize = width === 58 ? 7.5 : 8.2;
   const gap = width === 58 ? 1.5 : 2;
-  const doc = new jsPDF({ unit: "mm", format: [width, 400] });
+  const doc = new jsPDF({ unit: "mm", format: [width, 180] });
   let y = margin + 1;
   const setFont = (size: number, bold: boolean, family: "helvetica" | "courier" = "helvetica") => {
     doc.setFont(family, bold ? "bold" : "normal");
@@ -122,7 +122,6 @@ export function printCashOpenReceipt(data: OpeningReceiptData, filename: string)
   divider();
   y += draw("Comprovante de controle interno", margin, y, contentWidth, fontSize, false, "center");
   y += draw("Abertura registrada com sucesso", margin, y + 0.6, contentWidth, fontSize, true, "center");
-  doc.internal.pageSize.setHeight(Math.max(55, y + margin + 2));
   doc.save(filename);
 }
 
@@ -227,7 +226,7 @@ export function printCashCloseoutReceipt(data: CloseoutReceiptData, filename: st
   const bodySize = width === 58 ? 7.2 : 8;
   const bodyLeading = bodySize * 0.42;
   const gap = width === 58 ? 1.4 : 1.8;
-  const doc = new jsPDF({ unit: "mm", format: [width, 400], compress: true });
+  const doc = new jsPDF({ unit: "mm", format: [width, 250] });
   let y = margin + 1;
 
   const setText = (size: number, bold: boolean, font: "helvetica" | "courier" = "helvetica") => {
@@ -294,8 +293,6 @@ export function printCashCloseoutReceipt(data: CloseoutReceiptData, filename: st
     y += block.prominent ? 0.8 : 0.25;
   });
 
-  const height = Math.max(55, y + margin + 2);
-  doc.internal.pageSize.setHeight(height);
   doc.save(filename);
   return { status, totalReceived, hasElectronicDifference };
 }
