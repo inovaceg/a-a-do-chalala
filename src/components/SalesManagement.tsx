@@ -67,7 +67,7 @@ export default function SalesManagement({ active, role }: { active: boolean; rol
   const editTotal = useMemo(() => items.reduce((sum, item) => {
     const product = productById.get(item.productId);
     return sum + (product ? (Number(product.price) + item.extras.reduce((extraTotal, extra) => extraTotal + Number(extra.price), 0)) * item.quantity : 0);
-  }, 0) - Number(editing?.discount_amount ?? 0), [items, productById, editing]);
+  }, 0) - Number(editing?.discount_amount ?? 0) + Number(editing?.delivery_fee ?? 0), [items, productById, editing]);
 
   const startEdit = (sale: Sale) => {
     if (role !== "admin") return;

@@ -19,8 +19,8 @@ export default function PaymentCheckout({ total, deliveryFee = 0, saving = false
   const [customer, setCustomer] = useState("");
   const [dueDate, setDueDate] = useState("");
   const dialogRef = useRef<HTMLElement>(null);
-  const proposedDiscount = discountType === "percent" ? grossTotal * Math.min(Number(discountValue) || 0, 100) / 100 : Number(discountValue) || 0;
-  const discount = approvedDiscount ? Math.min(grossTotal, proposedDiscount) : 0;
+  const proposedDiscount = discountType === "percent" ? total * Math.min(Number(discountValue) || 0, 100) / 100 : Number(discountValue) || 0;
+  const discount = approvedDiscount ? Math.min(total, proposedDiscount) : 0;
   const due = Math.max(0, grossTotal - discount);
   const paid = useMemo(() => lines.reduce((sum, item) => sum + (Number(item.amount) || 0), 0), [lines]);
   const needsChange = lines.some(item => item.method === "Dinheiro") && paid > due;

@@ -56,14 +56,18 @@ export default function CouponStartDialog({ open, onCancel, onConfirm }: Props) 
   useEffect(() => {
     if (!open) return;
     let active = true;
+    setDeliveryZonesLoading(true);
     const loadZones = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) { if (active) setDeliveryZonesLoading(false); return; }
       const { data: memberships } = await supabase.from("store_memberships").select("store_id").eq("user_id", user.id).limit(1);
       const storeId = memberships?.[0]?.store_id;
-      if (!storeId) return;
+      if (!storeId) { if (active) setDeliveryZonesLoading(false); return; }
       const { data } = await supabase.from("delivery_zones").select("neighborhood,delivery_fee").eq("store_id", storeId);
-      if (active) setDeliveryZones((data ?? []).map(zone => ({ ...zone, delivery_fee: Number(zone.delivery_fee) })) as DeliveryZone[]);
+      if (active) {
+        setDeliveryZones((data ?? []).map(zone => ({ ...zone, delivery_fee: Number(zone.delivery_fee) })) as DeliveryZone[]);
+        setDeliveryZonesLoading(false);
+      }
     };
     void loadZones();
     return () => { active = false; };
@@ -173,18 +177,19 @@ export default function CouponStartDialog({ open, onCancel, onConfirm }: Props) 
     setWhatsappMatches([]);
   };
   const feeForNeighborhood = (neighborhood: string | null | undefined) => deliveryZones.find(zone => zone.neighborhood.trim().toLocaleLowerCase("pt-BR") === neighborhood?.trim().toLocaleLowerCase("pt-BR"))?.delivery_fee ?? 0;
-  const currentDeliveryFee = delivery ? feeForNeighborhood(fields.neighborhood) : 0;
+  const currentDeliveryFee = delivery && !anonymous ? feeForNeighborhood(fields.neighborhood) : 0;
 
   const start = async (event: React.FormEvent) => {
     event.preventDefault();
     setError("");
+    if (delivery && deliveryZonesLoading) { setError("Aguarde o carregamento das taxas de entrega."); return; }
     const courier = delivery ? couriers.find(item => item.id === selectedCourierId) ?? null : null;
     if (delivery && !courier) {
       setError("Selecione um motoboy para este pedido delivery.");
       return;
     }
     if (anonymous) {
-      onConfirm({ customer: null, delivery, deliveryAddress: delivery ? fullAddress(fields) : "", deliveryFee: delivery ? feeForNeighborhood(fields.neighborhood) : 0, courier });
+      onConfirm({ customer: null, delivery, deliveryAddress: delivery ? fullAddress(fields) : "", deliveryFee: 0, courier });
       return;
     }
     const name = fields.name.trim().toLocaleUpperCase("pt-BR");

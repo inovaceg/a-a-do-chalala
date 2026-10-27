@@ -443,7 +443,19 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
       }
     }
     receipt.insertBefore(identity, receipt.querySelector(".receipt-items"));
-    return () => identity.remove();
+    let feeRow: HTMLDivElement | null = null;
+    if (closedSale.deliveryFee > 0) {
+      feeRow = document.createElement("div");
+      feeRow.className = "receipt-total";
+      const feeLabel = document.createElement("span");
+      feeLabel.textContent = "TAXA DE ENTREGA";
+      const feeAmount = document.createElement("b");
+      feeAmount.textContent = money(closedSale.deliveryFee);
+      feeRow.append(feeLabel, feeAmount);
+      const totalRow = Array.from(receipt.querySelectorAll<HTMLElement>(".receipt-total")).find(row => row.querySelector("span")?.textContent?.trim() === "TOTAL");
+      totalRow?.before(feeRow);
+    }
+    return () => { identity.remove(); feeRow?.remove(); };
   }, [closedSale]);
   const totalOf = (item: CartItem) => item.product.price + item.extras.reduce((sum, e) => sum + e.price, 0);
   const openForm = (type: "product" | "extra", product?: Product) => { setEditingProduct(product ?? null); setFormName(product?.name ?? ""); setFormPrice(product ? String(product.price) : ""); setFormCostPrice(product ? String(product.cost_price ?? 0) : ""); setFormCategory(product?.category.split(" • ")[0] ?? "Açaí"); setFormCombo(product?.kind === "combo" || Boolean(product?.category.includes("Combo"))); setFormExtras(product?.extras?.map(extra => extra.name) ?? []); setDialog(type); };
