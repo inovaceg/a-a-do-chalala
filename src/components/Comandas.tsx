@@ -128,6 +128,7 @@ export default function Comandas(
     const [sortNewest, setSortNewest] = useState(true);
     const [openForm, setOpenForm] = useState(false);
     const [customerWhatsapp, setCustomerWhatsapp] = useState("");
+    const [customerBirthDate, setCustomerBirthDate] = useState("");
     const [customerName, setCustomerName] = useState("");
     const [productId, setProductId] = useState("");
     const [orderKey, setOrderKey] = useState<string | null>(null);
@@ -345,8 +346,8 @@ export default function Comandas(
     const openTab = async (event: React.FormEvent) => {
         event.preventDefault();
         const phoneDigits = customerWhatsapp.replace(/\D/g, "");
-        if (!customerName.trim() || customerName.trim().length > 120 || phoneDigits.length < 10 || phoneDigits.length > 15) {
-            setError("Informe o nome e um WhatsApp válido (10 a 15 dígitos).");
+        if (!customerName.trim() || customerName.trim().length > 120 || phoneDigits.length < 10 || phoneDigits.length > 15 || !customerBirthDate || customerBirthDate > new Date().toISOString().slice(0, 10)) {
+            setError("Informe nome, WhatsApp válido e data de nascimento não futura.");
             return;
         }
         setSaving(true);
@@ -359,6 +360,7 @@ export default function Comandas(
             p_store_id: storeId,
             p_customer_name: customerName.trim(),
             p_customer_whatsapp: phoneDigits,
+            p_customer_birth_date: customerBirthDate,
             p_terminal: "PDV"
         });
 
@@ -371,6 +373,7 @@ export default function Comandas(
 
         setOpenForm(false);
         setCustomerWhatsapp("");
+        setCustomerBirthDate("");
         setCustomerName("");
         setNotice(data.customer_created ? `Comanda #${data.tab_number} aberta e cliente cadastrado.` : `Comanda #${data.tab_number} aberta. Cliente existente localizado pelo WhatsApp.`);
         void load();
@@ -856,7 +859,12 @@ export default function Comandas(
                             maxLength={20}
                             value={customerWhatsapp}
                             onChange={event => setCustomerWhatsapp(event.target.value)}
-                            placeholder="(00) 00000-0000" /></label>{error && <p className="comandas-error">{error}</p>}<button className="comandas-primary" disabled={saving || !storeId}><Plus size={15} />{saving ? "Abrindo…" : "Abrir comanda"}</button></form></div>}
+                            placeholder="(00) 00000-0000" /></label><label>Data de nascimento<input
+                                                        required
+                                                        type="date"
+                                                        max={new Date().toISOString().slice(0, 10)}
+                                                        value={customerBirthDate}
+                                                        onChange={event => setCustomerBirthDate(event.target.value)} /></label>{error && <p className="comandas-error">{error}</p>}<button className="comandas-primary" disabled={saving || !storeId}><Plus size={15} />{saving ? "Abrindo…" : "Abrir comanda"}</button></form></div>}
             {notice && <div className="comandas-notice" role="status">{notice}<button onClick={() => setNotice("")} aria-label="Fechar">×</button></div>}
         </section>
     );
