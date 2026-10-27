@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Banknote, ClipboardCheck, DoorOpen, History, PlusCircle, Printer, RefreshCw } from "lucide-react";
+import { Banknote, ClipboardCheck, DoorOpen, History, PlusCircle, Printer, RefreshCw, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { printCashCloseoutReceipt, printCashReceipt as printBasicCashReceipt, type CloseoutReceiptData } from "./CashReceipt";
+import { printCashCloseoutReceipt, printCashOpenReceipt, printCashReceipt as printBasicCashReceipt, type CloseoutReceiptData, type OpeningReceiptData } from "./CashReceipt";
 import "./cash-management.css";
 import "./cash-receipt-preview.css";
 import "./cash-closeout-layout.css";
@@ -11,7 +11,7 @@ type Register = { id: string; name: string; is_active: boolean; is_open: boolean
 type Session = { id: string; register_id: string; opened_by: string; closed_by: string | null; status: "open" | "closed"; opening_amount: number; closing_amount: number | null; opened_at: string; closed_at: string | null; opening_note: string | null; shift_name: string; closing_note: string | null; expected_cash: number | null; cash_difference: number | null; non_cash_count: Record<string, number>; cash_registers?: { name: string } | null; profiles?: { display_name: string } | null; closers?: { display_name: string } | null };
 type Movement = { id: string; movement_type: string; amount: number; note: string | null; created_at: string; created_by: string };
 type Summary = { session: Session; payment_totals: Record<string, number>; cash_sales: number; supplies: number; withdrawals: number; refunds: number; expected_cash: number };
-type ReceiptPreview = { title: string; rows: string[]; filename: string; closeoutData?: CloseoutReceiptData };
+type ReceiptPreview = { title: string; rows: string[]; filename: string; closeoutData?: CloseoutReceiptData; openingData?: OpeningReceiptData };
 const methods = ["Pix", "Cartão de débito", "Cartão de crédito", "Vale alimentação"];
 const money = (value: number) => Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const when = (value: string | null) => value ? new Date(value).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "—";
@@ -101,6 +101,45 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
     else { setSummary(null); setMovements([]); }
   }, [active, selectedSession?.id, loadDetails]);
 
+  const makeOpeningReceipt = (session: Session, operatorName: string): ReceiptPreview => {
+    const registerName = session.cash_registers?.name ?? registers.find(register => register.id === session.register_id)?.name ?? "Caixa físico";
+    const openingData: OpeningReceiptData = {
+      paperWidth,
+      terminal: registerName,
+      shift: session.shift_name,
+      operator: operatorName,
+      openedAt: when(session.opened_at),
+      openingAmount: Number(session.opening_amount),
+      openingNote: session.opening_note,
+    };
+    const filename = `abertura-caixa-${session.id.slice(0, 8)}-${paperWidth}mm.pdf`;
+    const rows = [
+      "AÇAÍ DO CHALALÁ",
+      "COMPROVANTE NÃO FISCAL",
+      "ABERTURA DE CAIXA",
+      "CAIXA ABERTO",
+      "INFORMAÇÕES DO CAIXA",
+      `Terminal: ${openingData.terminal}`,
+      `Turno: ${openingData.shift}`,
+      `Operador: ${openingData.operator}`,
+      `Data e horário: ${openingData.openedAt}`,
+      "SALDO INICIAL EM DINHEIRO",
+      money(openingData.openingAmount),
+      ...(openingData.openingNote ? [`Observação: ${openingData.openingNote}`] : []),
+      "Comprovante de controle interno",
+      "Abertura registrada com sucesso",
+    ];
+    const receipt: ReceiptPreview = { title: "ABERTURA DE CAIXA", rows, filename, openingData };
+    setReceiptPreview(receipt);
+    return receipt;
+  };
+
+  const showOpeningReceipt = (session: Session) => {
+    const operatorName = session.profiles?.display_name ?? session.opened_by;
+    makeOpeningReceipt(session, operatorName);
+    setReceiptOpen(true);
+  };
+
   const openSession = async (event: React.FormEvent) => {
     event.preventDefault();
     setSaving(true); setError(""); setSuccess("");
@@ -108,28 +147,10 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
     setSaving(false);
     if (requestError || !data) { setError(requestError?.message || "Não foi possível abrir o caixa."); return; }
     const opened = data as Session;
-    const registerName = registers.find(register => register.id === opened.register_id)?.name ?? "Caixa físico";
     const { data: { user } } = await supabase.auth.getUser();
     const { data: operatorProfile } = user ? await supabase.from("profiles").select("display_name").eq("id", user.id).maybeSingle() : { data: null };
-    const openingReceipt: ReceiptPreview = {
-      title: "COMPROVANTE DE ABERTURA DE CAIXA",
-      rows: [
-        "AÇAÍ DO CHALALA · NÃO FISCAL",
-        "--------------------------------",
-        `Terminal: ${registerName}`,
-        `Turno: ${opened.shift_name}`,
-        `Operador: ${operatorProfile?.display_name ?? user?.email ?? "—"}`,
-        `Abertura: ${when(opened.opened_at)}`,
-        "--------------------------------",
-        `SALDO INICIAL EM DINHEIRO: ${money(Number(opened.opening_amount))}`,
-        ...(opened.opening_note ? [`Observação: ${opened.opening_note}`] : []),
-        "--------------------------------",
-        "Comprovante de controle interno",
-      ],
-      filename: `abertura-caixa-${opened.id.slice(0, 8)}.pdf`,
-    };
-    setReceiptPreview(openingReceipt);
-    printBasicCashReceipt(openingReceipt.title, openingReceipt.rows, openingReceipt.filename);
+    const openingReceipt = makeOpeningReceipt(opened, operatorProfile?.display_name ?? user?.email ?? "—");
+    if (openingReceipt.openingData) printCashOpenReceipt(openingReceipt.openingData, openingReceipt.filename);
     setSuccess("Caixa aberto. Comprovante de abertura gerado.");
     setRegisterId(""); setOpeningAmount("0.00"); setOpeningNote("");
     await load(opened.id);
@@ -241,6 +262,11 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
       printCashCloseoutReceipt({ ...receiptPreview.closeoutData, paperWidth }, closeoutFilename);
       return;
     }
+    if (receiptPreview?.openingData && receiptPreview.filename === filename) {
+      const openingFilename = filename.replace(/-(58|80)mm\.pdf$/, `-${paperWidth}mm.pdf`);
+      printCashOpenReceipt({ ...receiptPreview.openingData, paperWidth }, openingFilename);
+      return;
+    }
     printBasicCashReceipt(title, rows, filename);
   };
 
@@ -250,20 +276,20 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
   const display = (movement: Movement) => movement.movement_type === "supply" ? "Suprimento" : movement.movement_type === "withdrawal" ? "Sangria" : movement.movement_type === "sale" ? "Venda" : movement.movement_type === "refund" || movement.movement_type === "reversal" ? "Estorno" : movement.movement_type === "sale_adjustment" ? "Ajuste de venda" : movement.movement_type === "closing" ? "Fechamento" : movement.movement_type === "opening" ? "Abertura" : movement.movement_type;
 
   return <div className="cash-screen"><section className="cash-workspace">
-    <header className="cash-heading"><div><span className="cash-kicker">CONTROLE DE TURNO</span><h2>Caixa</h2><p>Abertura, movimentações, conferência e histórico por terminal.</p></div><button className="cash-refresh" onClick={() => void load(selectedId)} disabled={loading}><RefreshCw size={16}/> Atualizar</button></header>
+    <header className="cash-heading"><div><span className="cash-kicker">CONTROLE DE TURNO</span><h2>Caixa</h2><p>Abertura, movimentações, conferência e histórico por terminal.</p></div><div className="cash-receipt-actions"><label className="cash-paper-picker">Papel<select value={paperWidth} onChange={event => setPaperWidth(Number(event.target.value) as 58 | 80)}><option value={58}>58 mm</option><option value={80}>80 mm</option></select></label><button className="cash-refresh" onClick={() => void load(selectedId)} disabled={loading}><RefreshCw size={16}/> Atualizar</button></div></header>
     {error && <div className="cash-message cash-error" role="alert">{error}</div>}{success && <div className="cash-message cash-success" role="status">{success}{receiptPreview && <button type="button" className="cash-preview-link" onClick={() => setReceiptOpen(true)}>Visualizar comprovante</button>}</div>}
     {loading ? <div className="cash-empty">Carregando sessões…</div> : <>
       <div className="cash-session-picker"><label>Sessão selecionada<select value={selectedId} onChange={event => setSelectedId(event.target.value)}><option value="">Selecione uma sessão</option>{sessions.map(session => <option key={session.id} value={session.id}>{session.cash_registers?.name ?? "Caixa"} · {session.shift_name} · {session.status === "open" ? "Aberto" : "Fechado"} · {when(session.opened_at)}</option>)}</select></label>{selectedSession && <span className={`cash-status ${selectedSession.status}`}>{selectedSession.status === "open" ? "Aberto" : "Fechado"}</span>}</div>
       {!selectedSession && <form className="cash-card cash-open-form" onSubmit={openSession}><div className="cash-card-title"><span className="cash-icon"><DoorOpen size={18}/></span><div><h3>Abertura de caixa</h3><p>Informe o terminal, o valor inicial e o turno.</p></div></div><div className="cash-form-grid"><label>Caixa físico<select required value={registerId} onChange={event => setRegisterId(event.target.value)}><option value="">Selecione um caixa disponível</option>{availableRegisters.map(register => <option key={register.id} value={register.id}>{register.name}</option>)}</select></label><label>Turno<input required maxLength={80} value={shiftName} onChange={event => setShiftName(event.target.value)}/></label><label>Saldo inicial em dinheiro<input required type="number" min="0" step="0.01" value={openingAmount} onChange={event => setOpeningAmount(event.target.value)} onBlur={event => { const value = event.target.value; if (value !== "") setOpeningAmount(Number(value).toFixed(2)); }}/></label><label className="cash-wide">Observações<textarea maxLength={500} value={openingNote} onChange={event => setOpeningNote(event.target.value)} placeholder="Observação da abertura (opcional)"/></label></div>{availableRegisters.length === 0 && <p className="cash-hint">Não há caixa físico disponível no momento; cada caixa pode ter somente uma sessão aberta.</p>}<button className="cash-primary" disabled={saving || !registerId}><DoorOpen size={16}/>{saving ? "Abrindo…" : "Abrir caixa"}</button></form>}
       {selectedSession && summary && <>
-        <div className="cash-session-banner"><div><span className={`cash-status ${selectedSession.status}`}>{selectedSession.status === "open" ? "CAIXA ABERTO" : "CAIXA FECHADO"}</span><h3>{selectedSession.cash_registers?.name ?? "Caixa"} · {selectedSession.shift_name}</h3><p>Aberto por {selectedSession.profiles?.display_name ?? "Operador"} em {when(selectedSession.opened_at)}</p></div><div><small>Saldo inicial</small><b>{money(Number(selectedSession.opening_amount))}</b></div></div>
+        <div className="cash-session-banner"><div><span className={`cash-status ${selectedSession.status}`}>{selectedSession.status === "open" ? "CAIXA ABERTO" : "CAIXA FECHADO"}</span><h3>{selectedSession.cash_registers?.name ?? "Caixa"} · {selectedSession.shift_name}</h3><p>Aberto por {selectedSession.profiles?.display_name ?? "Operador"} em {when(selectedSession.opened_at)}</p></div><div><small>Saldo inicial</small><b>{money(Number(selectedSession.opening_amount))}</b><button className="cash-secondary" onClick={() => showOpeningReceipt(selectedSession)}>Ver comprovante de abertura</button></div></div>
         <div className="cash-kpis"><article><span>Dinheiro esperado</span><b>{money(summary.expected_cash)}</b><small>Inicial + vendas + suprimentos − sangrias</small></article><article><span>Dinheiro recebido líquido</span><b>{money(summary.cash_sales)}</b><small>Após o troco devolvido</small></article><article><span>Suprimentos</span><b>{money(summary.supplies)}</b><small>Entradas adicionais</small></article><article><span>Sangrias</span><b>{money(summary.withdrawals)}</b><small>Retiradas registradas</small></article></div>
         <section className="cash-card"><div className="cash-card-title"><span className="cash-icon"><Banknote size={18}/></span><div><h3>Recebimentos por forma</h3><p>Vendas confirmadas; crediário pendente não entra como recebimento.</p></div></div><div className="cash-method-grid"><div><span>Dinheiro</span><b>{money(summary.cash_sales)}</b></div>{Object.entries(summary.payment_totals).filter(([method]) => method !== "Dinheiro").map(([method, amount]) => <div key={method}><span>{method}</span><b>{money(Number(amount))}</b></div>)}</div></section>
         {selectedSession.status === "open" && <div className="cash-work-grid"><form className="cash-card" onSubmit={saveMovement}><div className="cash-card-title"><span className="cash-icon"><PlusCircle size={18}/></span><div><h3>Suprimento ou sangria</h3><p>Movimentação em dinheiro, registrada com operador e horário.</p></div></div><label>Tipo<select value={movementType} onChange={event => setMovementType(event.target.value as "supply" | "withdrawal")}><option value="supply">Suprimento · entrada</option><option value="withdrawal">Sangria · retirada</option></select></label><label>Valor<input required type="number" min="0.01" step="0.01" value={movementAmount} onChange={event => setMovementAmount(event.target.value)}/></label><label>Motivo<textarea required minLength={3} maxLength={500} value={movementNote} onChange={event => setMovementNote(event.target.value)} placeholder="Informe o motivo"/></label><button className="cash-primary" disabled={saving}><PlusCircle size={16}/>{saving ? "Registrando…" : "Registrar movimentação"}</button></form>
           <form className="cash-card cash-close-form" onSubmit={closeSession}><div className="cash-card-title"><span className="cash-icon"><ClipboardCheck size={18}/></span><div><h3>Fechamento e conferência</h3><p>Conte o dinheiro físico e confira os meios não monetários separadamente.</p></div></div><label>Dinheiro contado<input required type="number" min="0" step="0.01" value={countedCash} onChange={event => setCountedCash(event.target.value)}/></label><div className="cash-count-methods">{methods.map(method => <label key={method}>{method}<input type="number" min="0" step="0.01" value={nonCashCount[method] ?? "0"} onChange={event => setNonCashCount(current => ({ ...current, [method]: event.target.value }))}/><small>Esperado: {money(Number(expectedNonCash[method] ?? 0))}</small></label>)}</div><div className="cash-difference-preview"><span>Diferença de dinheiro</span><b>{money((Number(countedCash) || 0) - summary.expected_cash)}</b></div><label>Justificativa de diferenças<textarea maxLength={1000} value={closingNote} onChange={event => setClosingNote(event.target.value)} placeholder="Obrigatória quando houver divergência"/></label><button className="cash-danger" disabled={saving}><ClipboardCheck size={16}/>{saving ? "Fechando…" : "Conferir e fechar caixa"}</button></form></div>}
         <section className="cash-card"><div className="cash-card-title"><span className="cash-icon"><History size={18}/></span><div><h3>Movimentações da sessão</h3><p>Registros históricos do turno; nenhuma linha é apagada.</p></div></div>{movements.length ? <div className="cash-movement-list">{movements.map(movement => <div key={movement.id}><span>{display(movement)}<small>{movement.note || "—"}</small></span><b className={movement.movement_type === "withdrawal" || movement.movement_type === "refund" ? "negative" : ""}>{movement.movement_type === "withdrawal" || movement.movement_type === "refund" ? "− " : "+ "}{money(Number(movement.amount))}</b><time>{when(movement.created_at)}</time></div>)}</div> : <div className="cash-empty">Nenhuma movimentação registrada.</div>}</section>
       </>}
-      {selectedSession?.status === "closed" && <section className="cash-card cash-closed-summary"><div className="cash-card-title"><span className="cash-icon"><ClipboardCheck size={18}/></span><div><h3>Conferência do fechamento</h3><p>Fechado em {when(selectedSession.closed_at)}.</p></div><div className="cash-receipt-actions"><label className="cash-paper-picker">Papel<select value={paperWidth} onChange={event => setPaperWidth(Number(event.target.value) as 58 | 80)}><option value={58}>58 mm</option><option value={80}>80 mm</option></select></label><button className="cash-secondary" disabled={summary?.session.id !== selectedSession.id} onClick={() => printCloseout(selectedSession, undefined, false)}>Visualizar relatório</button><button className="cash-secondary" disabled={summary?.session.id !== selectedSession.id} onClick={() => printCloseout(selectedSession)}><Printer size={15}/> Baixar cupom PDF</button></div></div><div className="cash-method-grid"><div><span>Dinheiro esperado</span><b>{money(Number(selectedSession.expected_cash ?? 0))}</b></div><div><span>Dinheiro contado</span><b>{money(Number(selectedSession.closing_amount ?? 0))}</b></div><div><span>Diferença</span><b className={Number(selectedSession.cash_difference) < 0 ? "negative" : ""}>{money(Number(selectedSession.cash_difference ?? 0))}</b></div>{methods.map(method => <div key={method}><span>{method} contado</span><b>{money(Number(selectedSession.non_cash_count?.[method] ?? 0))}</b></div>)}</div>{selectedSession.closing_note && <p className="cash-hint">Justificativa: {selectedSession.closing_note}</p>}</section>}
+      {selectedSession?.status === "closed" && <section className="cash-card cash-closed-summary"><div className="cash-card-title"><span className="cash-icon"><ClipboardCheck size={18}/></span><div><h3>Conferência do fechamento</h3><p>Fechado em {when(selectedSession.closed_at)}.</p></div><div className="cash-receipt-actions"><button className="cash-secondary" disabled={summary?.session.id !== selectedSession.id} onClick={() => printCloseout(selectedSession, undefined, false)}>Visualizar relatório</button><button className="cash-secondary" disabled={summary?.session.id !== selectedSession.id} onClick={() => printCloseout(selectedSession)}><Printer size={15}/> Baixar cupom PDF</button></div></div><div className="cash-method-grid"><div><span>Dinheiro esperado</span><b>{money(Number(selectedSession.expected_cash ?? 0))}</b></div><div><span>Dinheiro contado</span><b>{money(Number(selectedSession.closing_amount ?? 0))}</b></div><div><span>Diferença</span><b className={Number(selectedSession.cash_difference) < 0 ? "negative" : ""}>{money(Number(selectedSession.cash_difference ?? 0))}</b></div>{methods.map(method => <div key={method}><span>{method} contado</span><b>{money(Number(selectedSession.non_cash_count?.[method] ?? 0))}</b></div>)}</div>{selectedSession.closing_note && <p className="cash-hint">Justificativa: {selectedSession.closing_note}</p>}</section>}
       <section className="cash-card cash-history"><div className="cash-card-title"><span className="cash-icon"><History size={18}/></span><div><h3>Histórico de sessões</h3><p>{filteredSessions.length} sessões visíveis para seu perfil.</p></div></div><div className="cash-filters"><label>De<input type="date" value={fromDate} onChange={event => setFromDate(event.target.value)}/></label><label>Até<input type="date" value={toDate} onChange={event => setToDate(event.target.value)}/></label>{role === "admin" && <><label>Operador<select value={operatorFilter} onChange={event => setOperatorFilter(event.target.value)}><option value="">Todos</option>{operators.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label><label>Terminal<select value={registerFilter} onChange={event => setRegisterFilter(event.target.value)}><option value="">Todos</option>{registers.map(register => <option key={register.id} value={register.id}>{register.name}</option>)}</select></label></>}</div>{filteredSessions.length ? <div className="cash-history-table"><table><thead><tr><th>Terminal / turno</th><th>Operador</th><th>Abertura</th><th>Fechamento</th><th>Status</th><th>Diferença</th><th/></tr></thead><tbody>{filteredSessions.map(session => <tr key={session.id}><td><b>{session.cash_registers?.name ?? "Caixa"}</b><small>{session.shift_name}</small></td><td>{session.profiles?.display_name ?? "—"}</td><td>{when(session.opened_at)}</td><td>{when(session.closed_at)}</td><td><span className={`cash-status ${session.status}`}>{session.status === "open" ? "Aberto" : "Fechado"}</span></td><td>{session.cash_difference === null ? "—" : money(Number(session.cash_difference))}</td><td><button className="cash-secondary" onClick={() => setSelectedId(session.id)}>Detalhes</button></td></tr>)}</tbody></table></div> : <div className="cash-empty">Nenhuma sessão no período selecionado.</div>}</section>
     </>}
   </section>{receiptOpen && receiptPreview && <div className="cash-receipt-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setReceiptOpen(false); }}><section className="cash-receipt-preview" role="dialog" aria-modal="true" aria-labelledby="cash-receipt-title"><header><div><span className="cash-kicker">PRÉVIA DO COMPROVANTE</span><h3 id="cash-receipt-title">{receiptPreview.title}</h3></div><button className="cash-secondary" onClick={() => setReceiptOpen(false)} aria-label="Fechar prévia"><X size={16}/></button></header><div className="cash-receipt-paper"><h4>{receiptPreview.title}</h4><pre>{receiptPreview.rows.join(String.fromCharCode(10))}</pre></div><footer><button className="cash-secondary" onClick={() => setReceiptOpen(false)}>Fechar</button><button className="cash-primary" onClick={() => printCashReceipt(receiptPreview.title, receiptPreview.rows, receiptPreview.filename)}><Printer size={15}/> Baixar cupom PDF</button></footer></section></div>}</div>;

@@ -21,6 +21,111 @@ export function printCashReceipt(title: string, rows: string[], filename: string
   doc.save(filename);
 }
 
+export type OpeningReceiptData = {
+  paperWidth: 58 | 80;
+  terminal: string;
+  shift: string;
+  operator: string;
+  openedAt: string;
+  openingAmount: number;
+  openingNote?: string | null;
+};
+
+export function printCashOpenReceipt(data: OpeningReceiptData, filename: string) {
+  const width = data.paperWidth;
+  const margin = width === 58 ? 4 : 5;
+  const contentWidth = width - margin * 2;
+  const fontSize = width === 58 ? 7.5 : 8.2;
+  const gap = width === 58 ? 1.5 : 2;
+  const doc = new jsPDF({ unit: "mm", format: [width, 1000], compress: true });
+  let y = margin + 1;
+  const setFont = (size: number, bold: boolean, family: "helvetica" | "courier" = "helvetica") => {
+    doc.setFont(family, bold ? "bold" : "normal");
+    doc.setFontSize(size);
+  };
+  const draw = (text: string, x: number, startY: number, maxWidth: number, size: number, bold: boolean, align: "left" | "right" | "center" = "left", family: "helvetica" | "courier" = "helvetica") => {
+    setFont(size, bold, family);
+    const lines = doc.splitTextToSize(text, maxWidth) as string[];
+    const leading = size * 0.44;
+    lines.forEach((line, index) => {
+      const textWidth = doc.getTextWidth(line);
+      const lineX = align === "center" ? (width - textWidth) / 2 : align === "right" ? x + maxWidth - textWidth : x;
+      doc.text(line, lineX, startY + index * leading);
+    });
+    return lines.length * leading;
+  };
+  const centeredFit = (text: string, size: number, minimum: number, bold: boolean) => {
+    let fittedSize = size;
+    setFont(fittedSize, bold);
+    while (doc.getTextWidth(text) > contentWidth && fittedSize > minimum) {
+      fittedSize -= 0.25;
+      setFont(fittedSize, bold);
+    }
+    y += draw(text, margin, y, contentWidth, fittedSize, bold, "center");
+    y += 0.7;
+  };
+  const divider = () => {
+    y += gap;
+    doc.setDrawColor(145);
+    doc.setLineWidth(0.15);
+    doc.line(margin, y, width - margin, y);
+    y += gap + 0.3;
+  };
+  const section = (text: string) => {
+    y += gap;
+    y += draw(text, margin, y, contentWidth, fontSize + 0.2, true);
+    y += 0.4;
+  };
+  const pair = (label: string, value: string) => {
+    setFont(fontSize, false, "courier");
+    const valueWidth = doc.getTextWidth(value);
+    const labelWidth = Math.max(15, contentWidth - Math.min(valueWidth, contentWidth * 0.55) - gap);
+    const labelHeight = draw(label, margin, y, labelWidth, fontSize, false);
+    if (valueWidth > contentWidth * 0.55) {
+      y += Math.max(labelHeight, fontSize * 0.44) + 0.15;
+      y += draw(value, margin, y, contentWidth, fontSize, false, "right", "courier");
+    } else {
+      const valueHeight = draw(value, margin + labelWidth + gap, y, contentWidth - labelWidth - gap, fontSize, false, "right", "courier");
+      y += Math.max(labelHeight, valueHeight, fontSize * 0.44);
+    }
+    y += 0.3;
+  };
+
+  centeredFit("AÇAÍ DO CHALALÁ", 11.5, 9.5, true);
+  centeredFit("COMPROVANTE NÃO FISCAL", 8, 7.3, true);
+  divider();
+  centeredFit("ABERTURA DE CAIXA", 10.5, 8.5, true);
+  centeredFit("CAIXA ABERTO", 8.5, 7.5, true);
+  divider();
+  section("INFORMAÇÕES DO CAIXA");
+  pair("Terminal", data.terminal);
+  pair("Turno", data.shift);
+  pair("Operador", data.operator);
+  pair("Data e horário", data.openedAt);
+  divider();
+  section("SALDO INICIAL EM DINHEIRO");
+  const initialBalance = Number(data.openingAmount || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  let balanceFont = width === 58 ? 13 : 15;
+  setFont(balanceFont, true, "courier");
+  while (doc.getTextWidth(initialBalance) > contentWidth && balanceFont > 10) {
+    balanceFont -= 0.5;
+    setFont(balanceFont, true, "courier");
+  }
+  y += draw(initialBalance, margin, y + 1, contentWidth, balanceFont, true, "center", "courier");
+  y += 1.5;
+  if (data.openingNote) {
+    divider();
+    section("OBSERVAÇÃO");
+    y += draw(data.openingNote, margin, y, contentWidth, fontSize, false);
+    y += 0.5;
+  }
+  divider();
+  y += draw("Comprovante de controle interno", margin, y, contentWidth, fontSize, false, "center");
+  y += draw("Abertura registrada com sucesso", margin, y + 0.6, contentWidth, fontSize, true, "center");
+  doc.internal.pageSize.setHeight(Math.max(55, y + margin + 2));
+  doc.save(filename);
+}
+
 export type CloseoutReceiptData = {
   paperWidth: 58 | 80;
   terminal: string;
@@ -172,8 +277,8 @@ export function printCashCloseoutReceipt(data: CloseoutReceiptData, filename: st
       return;
     }
     setText(size, bold, "courier");
-    const valueWidth = value ? doc.getTextWidth(value) : 0;
-    const valueLines = value ? doc.splitTextToSize(value, contentWidth) as string[] : [];
+    const valueWidth = doc.getTextWidth(value);
+    const valueLines = doc.splitTextToSize(value, contentWidth) as string[];
     const labelWidth = Math.max(14, contentWidth - Math.min(valueWidth, contentWidth * 0.6) - gap);
     const labelHeight = drawWrapped(block.label, margin, y, labelWidth, size, bold);
     const valueHeight = valueLines.length > 1 || valueWidth > contentWidth * 0.6
