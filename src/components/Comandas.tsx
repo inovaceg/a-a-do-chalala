@@ -110,11 +110,6 @@ export default function Comandas(
     const [tabs, setTabs] = useState<Tab[]>([]);
     const [products, setProducts] = useState<Product[]>([]);
 
-    const [customers, setCustomers] = useState<{
-        id: string;
-        name: string;
-    }[]>([]);
-
     const [selected, setSelected] = useState<Tab | null>(null);
     const [orders, setOrders] = useState<Order[]>([]);
     const [items, setItems] = useState<Item[]>([]);
@@ -132,7 +127,7 @@ export default function Comandas(
     const [search, setSearch] = useState("");
     const [sortNewest, setSortNewest] = useState(true);
     const [openForm, setOpenForm] = useState(false);
-    const [customerId, setCustomerId] = useState("");
+    const [customerWhatsapp, setCustomerWhatsapp] = useState("");
     const [customerName, setCustomerName] = useState("");
     const [productId, setProductId] = useState("");
     const [orderKey, setOrderKey] = useState<string | null>(null);
@@ -165,10 +160,9 @@ export default function Comandas(
             return;
         }
 
-        const [membership, productData, customerData, sessions] = await Promise.all([
+        const [membership, productData, sessions] = await Promise.all([
             supabase.from("store_memberships").select("store_id,stores(name)").eq("user_id", user.id).limit(1).maybeSingle(),
             supabase.from("products").select("id,name,price,extras,is_active").eq("is_active", true).order("name"),
-            supabase.from("customers").select("id,name").order("name"),
             supabase.from("cash_sessions").select("id,opened_by").eq("status", "open").order("opened_at", {
                 ascending: false
             })
@@ -201,7 +195,6 @@ export default function Comandas(
         } | null)?.name ?? "Loja");
 
         setProducts((productData.data ?? []) as Product[]);
-        setCustomers(customerData.data ?? []);
 
         setCashSessionId(
             sessions.data?.find(session => role === "admin" || session.opened_by === user.id)?.id ?? ""
@@ -351,17 +344,21 @@ export default function Comandas(
 
     const openTab = async (event: React.FormEvent) => {
         event.preventDefault();
+        const phoneDigits = customerWhatsapp.replace(/\D/g, "");
+        if (!customerName.trim() || customerName.trim().length > 120 || phoneDigits.length < 10 || phoneDigits.length > 15) {
+            setError("Informe o nome e um WhatsApp válido (10 a 15 dígitos).");
+            return;
+        }
         setSaving(true);
         setError("");
 
         const {
             data,
             error: requestError
-        } = await supabase.rpc("open_tab", {
+        } = await supabase.rpc("open_tab_with_customer", {
             p_store_id: storeId,
-            p_tab_number: null,
-            p_customer_id: customerId || null,
-            p_customer_name: customerName.trim() || null,
+            p_customer_name: customerName.trim(),
+            p_customer_whatsapp: phoneDigits,
             p_terminal: "PDV"
         });
 
@@ -373,9 +370,9 @@ export default function Comandas(
         }
 
         setOpenForm(false);
-        setCustomerId("");
+        setCustomerWhatsapp("");
         setCustomerName("");
-        setNotice(`Comanda #${data.tab_number} aberta.`);
+        setNotice(data.customer_created ? `Comanda #${data.tab_number} aberta e cliente cadastrado.` : `Comanda #${data.tab_number} aberta. Cliente existente localizado pelo WhatsApp.`);
         void load();
     };
 
@@ -847,23 +844,19 @@ export default function Comandas(
                         type="button"
                         className="comandas-icon-button"
                         onClick={() => setOpenForm(false)}
-                        aria-label="Fechar"><X size={18} /></button><span className="comandas-kicker">NOVA COMANDA</span><h3>Abrir comanda</h3><p>O sistema atribui automaticamente o próximo número exclusivo.</p><label>Cliente cadastrado (opcional)<select
-                            value={customerId}
-                            onChange={event => {
-                                setCustomerId(event.target.value);
-                                setCustomerName(customers.find(customer => customer.id === event.target.value)?.name ?? "");
-                            }}><option value="">Sem cliente cadastrado</option>{customers.map(
-                                customer => <option key={customer.id} value={customer.id}>{customer.name}</option>
-                            )}</select></label><label>Nome para identificar (opcional)<input
-                            maxLength={160}
+                        aria-label="Fechar"><X size={18} /></button><span className="comandas-kicker">NOVA COMANDA</span><h3>Abrir comanda</h3><p>Informe o nome e WhatsApp do cliente. Se o número já estiver cadastrado, o cliente existente será reutilizado.</p><label>Nome completo<input
+                            required
+                            maxLength={120}
                             value={customerName}
-                            onChange={event => {
-                                setCustomerName(event.target.value);
-
-                                if (event.target.value)
-                                    setCustomerId("");
-                            }}
-                            placeholder="Nome do cliente" /></label>{error && <p className="comandas-error">{error}</p>}<button className="comandas-primary" disabled={saving || !storeId}><Plus size={15} />{saving ? "Abrindo…" : "Abrir comanda"}</button></form></div>}
+                            onChange={event => setCustomerName(event.target.value)}
+                            placeholder="Nome do cliente" /></label><label>WhatsApp<input
+                            required
+                            type="tel"
+                            inputMode="tel"
+                            maxLength={20}
+                            value={customerWhatsapp}
+                            onChange={event => setCustomerWhatsapp(event.target.value)}
+                            placeholder="(00) 00000-0000" /></label>{error && <p className="comandas-error">{error}</p>}<button className="comandas-primary" disabled={saving || !storeId}><Plus size={15} />{saving ? "Abrindo…" : "Abrir comanda"}</button></form></div>}
             {notice && <div className="comandas-notice" role="status">{notice}<button onClick={() => setNotice("")} aria-label="Fechar">×</button></div>}
         </section>
     );
