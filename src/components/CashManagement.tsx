@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Banknote, ClipboardCheck, DoorOpen, History, PlusCircle, Printer, RefreshCw } from "lucide-react";
-import { jsPDF } from "jspdf";
 import { supabase } from "@/integrations/supabase/client";
+import { printCashReceipt } from "./CashReceipt";
 import "./cash-management.css";
 
 type Role = "admin" | "operator";
@@ -102,7 +102,23 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
     setSaving(false);
     if (requestError || !data) { setError(requestError?.message || "Não foi possível abrir o caixa."); return; }
     const opened = data as Session;
-    setSuccess("Caixa aberto com sucesso.");
+    const registerName = registers.find(register => register.id === opened.register_id)?.name ?? "Caixa físico";
+    const { data: { user } } = await supabase.auth.getUser();
+    const { data: operatorProfile } = user ? await supabase.from("profiles").select("display_name").eq("id", user.id).maybeSingle() : { data: null };
+    printCashReceipt("COMPROVANTE DE ABERTURA DE CAIXA", [
+      "AÇAÍ DO CHALALA · NÃO FISCAL",
+      "--------------------------------",
+      `Terminal: ${registerName}`,
+      `Turno: ${opened.shift_name}`,
+      `Operador: ${operatorProfile?.display_name ?? user?.email ?? "—"}`,
+      `Abertura: ${when(opened.opened_at)}`,
+      "--------------------------------",
+      `SALDO INICIAL EM DINHEIRO: ${money(Number(opened.opening_amount))}`,
+      ...(opened.opening_note ? [`Observação: ${opened.opening_note}`] : []),
+      "--------------------------------",
+      "Comprovante de controle interno",
+    ], `abertura-caixa-${opened.id.slice(0, 8)}.pdf`);
+    setSuccess("Caixa aberto. Comprovante de abertura gerado.");
     setRegisterId(""); setOpeningAmount("0.00"); setOpeningNote("");
     await load(opened.id);
     onSessionChange({ id: opened.id, register_id: opened.register_id });
@@ -126,10 +142,12 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
     event.preventDefault();
     if (!selectedSession || !window.confirm("Confirma o fechamento desta sessão? Depois do fechamento, não será possível registrar novas movimentações.")) return;
     setSaving(true); setError(""); setSuccess("");
-    const { error: requestError } = await supabase.rpc("close_cash_session", { p_session_id: selectedSession.id, p_counted_cash: Number(countedCash), p_non_cash_count: Object.fromEntries(methods.map(method => [method, Number(nonCashCount[method] || 0)])), p_note: closingNote.trim() || null });
+    const { data: closeData, error: requestError } = await supabase.rpc("close_cash_session", { p_session_id: selectedSession.id, p_counted_cash: Number(countedCash), p_non_cash_count: Object.fromEntries(methods.map(method => [method, Number(nonCashCount[method] || 0)])), p_note: closingNote.trim() || null });
     setSaving(false);
-    if (requestError) { setError(requestError.message || "Não foi possível fechar o caixa."); return; }
-    setSuccess("Caixa fechado e conferência registrada.");
+    if (requestError || !closeData) { setError(requestError?.message || "Não foi possível fechar o caixa."); return; }
+    const result = closeData as { session: Session; summary: Summary };
+    printCloseout({ ...result.session, cash_registers: selectedSession.cash_registers, profiles: selectedSession.profiles }, result.summary);
+    setSuccess("Caixa fechado. Comprovante de conferência gerado.");
     onSessionChange(null);
     await load(selectedSession.id);
     await loadDetails(selectedSession.id);
@@ -141,13 +159,41 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
   }), [sessions, fromDate, toDate, operatorFilter, registerFilter]);
   const operators = useMemo(() => [...new Map(sessions.map(session => [session.opened_by, session.profiles?.display_name || session.opened_by])).entries()], [sessions]);
 
-  const printCloseout = (session: Session) => {
-    const doc = new jsPDF({ unit: "mm", format: "a4" });
-    const currentSummary = summary?.session.id === session.id ? summary : null;
-    const rows = ["RELATÓRIO DE FECHAMENTO DE CAIXA", `Terminal: ${session.cash_registers?.name ?? "Caixa"}`, `Turno: ${session.shift_name}`, `Operador: ${session.profiles?.display_name ?? session.opened_by}`, `Abertura: ${when(session.opened_at)}`, `Fechamento: ${when(session.closed_at)}`, `Saldo inicial: ${money(Number(session.opening_amount))}`, `Dinheiro esperado: ${money(Number(session.expected_cash ?? currentSummary?.expected_cash ?? 0))}`, `Dinheiro contado: ${money(Number(session.closing_amount ?? 0))}`, `Diferença: ${money(Number(session.cash_difference ?? 0))}`, `Justificativa: ${session.closing_note || "—"}`, "", "Totais por forma de pagamento:", ...methods.map(method => `${method}: ${money(Number(session.non_cash_count?.[method] ?? currentSummary?.payment_totals?.[method] ?? 0))}`), `Dinheiro recebido líquido: ${money(Number(currentSummary?.cash_sales ?? 0))}`, `Suprimentos: ${money(Number(currentSummary?.supplies ?? 0))}`, `Sangrias: ${money(Number(currentSummary?.withdrawals ?? 0))}`];
-    doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.text(rows[0], 18, 20);
-    doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.text(rows.slice(1), 18, 31, { lineHeightFactor: 1.55 });
-    doc.save(`fechamento-caixa-${session.cash_registers?.name ?? session.id}.pdf`);
+  const printCloseout = (session: Session, currentSummary = summary?.session.id === session.id ? summary : null) => {
+    const expectedCash = Number(session.expected_cash ?? currentSummary?.expected_cash ?? 0);
+    const counted = Number(session.closing_amount ?? 0);
+    const rows = [
+      "AÇAÍ DO CHALALA · NÃO FISCAL",
+      "CONFERÊNCIA DE FECHAMENTO",
+      "--------------------------------",
+      `Terminal: ${session.cash_registers?.name ?? "Caixa"}`,
+      `Turno: ${session.shift_name}`,
+      `Operador: ${session.profiles?.display_name ?? session.opened_by}`,
+      `Abertura: ${when(session.opened_at)}`,
+      `Fechamento: ${when(session.closed_at)}`,
+      "--------------------------------",
+      `Saldo inicial: ${money(Number(session.opening_amount))}`,
+      "RECEBIMENTOS LÍQUIDOS:",
+      `Dinheiro: ${money(Number(currentSummary?.cash_sales ?? 0))}`,
+      ...Object.entries(currentSummary?.payment_totals ?? {}).filter(([method]) => method !== "Dinheiro").map(([method, amount]) => `${method}: ${money(Number(amount))}`),
+      `Suprimentos: ${money(Number(currentSummary?.supplies ?? 0))}`,
+      `Sangrias: ${money(Number(currentSummary?.withdrawals ?? 0))}`,
+      `Estornos: ${money(Number(currentSummary?.refunds ?? 0))}`,
+      "--------------------------------",
+      `Dinheiro esperado: ${money(expectedCash)}`,
+      `Dinheiro contado: ${money(counted)}`,
+      `Diferença em dinheiro: ${money(Number(session.cash_difference ?? counted - expectedCash))}`,
+      "CONFERÊNCIA NÃO MONETÁRIA:",
+      ...methods.map(method => {
+        const expected = Number(currentSummary?.payment_totals?.[method] ?? 0);
+        const actual = Number(session.non_cash_count?.[method] ?? 0);
+        return `${method}: esp. ${money(expected)} · contado ${money(actual)} · dif. ${money(actual - expected)}`;
+      }),
+      ...(session.closing_note ? [`Justificativa: ${session.closing_note}`] : []),
+      "--------------------------------",
+      "Comprovante de controle interno",
+    ];
+    printCashReceipt("COMPROVANTE DE FECHAMENTO DE CAIXA", rows, `fechamento-caixa-${session.id.slice(0, 8)}.pdf`);
   };
 
   if (!active) return null;
