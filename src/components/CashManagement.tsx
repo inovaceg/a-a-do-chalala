@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Banknote, ClipboardCheck, DoorOpen, History, PlusCircle, Printer, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { printCashReceipt } from "./CashReceipt";
+import { printCashCloseoutReceipt, printCashReceipt } from "./CashReceipt";
 import "./cash-management.css";
 import "./cash-receipt-preview.css";
+import "./cash-closeout-layout.css";
 
 type Role = "admin" | "operator";
 type Register = { id: string; name: string; is_active: boolean; is_open: boolean };
@@ -27,6 +28,7 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
   const [success, setSuccess] = useState("");
   const [receiptPreview, setReceiptPreview] = useState<ReceiptPreview | null>(null);
   const [receiptOpen, setReceiptOpen] = useState(false);
+  const [paperWidth, setPaperWidth] = useState<58 | 80>(80);
   const [registerId, setRegisterId] = useState("");
   const [openingAmount, setOpeningAmount] = useState("0.00");
   const [openingNote, setOpeningNote] = useState("");
@@ -170,42 +172,66 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
   const operators = useMemo(() => [...new Map(sessions.map(session => [session.opened_by, session.profiles?.display_name || session.opened_by])).entries()], [sessions]);
 
   const printCloseout = (session: Session, currentSummary = summary?.session.id === session.id ? summary : null, download = true) => {
+    const paymentTotals = currentSummary?.payment_totals ?? {};
     const expectedCash = Number(session.expected_cash ?? currentSummary?.expected_cash ?? 0);
-    const counted = Number(session.closing_amount ?? 0);
+    const countedCash = Number(session.closing_amount ?? 0);
+    const cashDifference = Number(session.cash_difference ?? countedCash - expectedCash);
+    const electronicExpected = Object.fromEntries(methods.map(method => [method, Number(paymentTotals[method] ?? 0)]));
+    const electronicCounted = Object.fromEntries(methods.map(method => [method, Number(session.non_cash_count?.[method] ?? 0)]));
+    const filename = `fechamento-caixa-${session.id.slice(0, 8)}.pdf`;
+    const receiptData = {
+      paperWidth,
+      terminal: session.cash_registers?.name ?? "Caixa",
+      shift: session.shift_name,
+      operator: session.profiles?.display_name ?? session.opened_by,
+      openedAt: when(session.opened_at),
+      closedAt: when(session.closed_at),
+      openingAmount: Number(session.opening_amount),
+      cashReceived: Number(currentSummary?.cash_sales ?? paymentTotals["Dinheiro"] ?? 0),
+      pixReceived: Number(paymentTotals["Pix"] ?? 0),
+      debitReceived: Number(paymentTotals["Cartão de débito"] ?? 0),
+      creditReceived: Number(paymentTotals["Cartão de crédito"] ?? 0),
+      mealVoucherReceived: Number(paymentTotals["Vale alimentação"] ?? 0),
+      supplies: Number(currentSummary?.supplies ?? 0),
+      withdrawals: Number(currentSummary?.withdrawals ?? 0),
+      refunds: Number(currentSummary?.refunds ?? 0),
+      expectedCash,
+      countedCash,
+      cashDifference,
+      electronicExpected,
+      electronicCounted,
+      closingNote: session.closing_note,
+    };
+    const totalReceived = receiptData.cashReceived + receiptData.pixReceived + receiptData.debitReceived + receiptData.creditReceived + receiptData.mealVoucherReceived;
     const rows = [
-      "AÇAÍ DO CHALALA · NÃO FISCAL",
-      "CONFERÊNCIA DE FECHAMENTO",
-      "--------------------------------",
-      `Terminal: ${session.cash_registers?.name ?? "Caixa"}`,
-      `Turno: ${session.shift_name}`,
-      `Operador: ${session.profiles?.display_name ?? session.opened_by}`,
-      `Abertura: ${when(session.opened_at)}`,
-      `Fechamento: ${when(session.closed_at)}`,
-      "--------------------------------",
-      `Saldo inicial: ${money(Number(session.opening_amount))}`,
-      "RECEBIMENTOS LÍQUIDOS:",
-      `Dinheiro: ${money(Number(currentSummary?.cash_sales ?? 0))}`,
-      ...Object.entries(currentSummary?.payment_totals ?? {}).filter(([method]) => method !== "Dinheiro").map(([method, amount]) => `${method}: ${money(Number(amount))}`),
-      `Suprimentos: ${money(Number(currentSummary?.supplies ?? 0))}`,
-      `Sangrias: ${money(Number(currentSummary?.withdrawals ?? 0))}`,
-      `Estornos: ${money(Number(currentSummary?.refunds ?? 0))}`,
-      "--------------------------------",
-      `Dinheiro esperado: ${money(expectedCash)}`,
-      `Dinheiro contado: ${money(counted)}`,
-      `Diferença em dinheiro: ${money(Number(session.cash_difference ?? counted - expectedCash))}`,
-      "CONFERÊNCIA NÃO MONETÁRIA:",
-      ...methods.map(method => {
-        const expected = Number(currentSummary?.payment_totals?.[method] ?? 0);
-        const actual = Number(session.non_cash_count?.[method] ?? 0);
-        return `${method}: esp. ${money(expected)} · contado ${money(actual)} · dif. ${money(actual - expected)}`;
-      }),
+      "Açaí do Chalalá",
+      "COMPROVANTE NÃO FISCAL",
+      "FECHAMENTO DE CAIXA",
+      `Terminal: ${receiptData.terminal}`,
+      `Turno: ${receiptData.shift}`,
+      `Operador: ${receiptData.operator}`,
+      `Abertura: ${receiptData.openedAt}`,
+      `Fechamento: ${receiptData.closedAt}`,
+      "RECEBIMENTOS DO TURNO",
+      `Dinheiro: ${money(receiptData.cashReceived)}`,
+      `Pix: ${money(receiptData.pixReceived)}`,
+      `Cartão de débito: ${money(receiptData.debitReceived)}`,
+      `Cartão de crédito: ${money(receiptData.creditReceived)}`,
+      `Vale-alimentação: ${money(receiptData.mealVoucherReceived)}`,
+      `TOTAL RECEBIDO: ${money(totalReceived)}`,
+      `Saldo inicial: ${money(receiptData.openingAmount)}`,
+      `Suprimentos: ${money(receiptData.supplies)}`,
+      `Sangrias: ${money(receiptData.withdrawals)}`,
+      `Estornos: ${money(receiptData.refunds)}`,
+      `Dinheiro esperado: ${money(receiptData.expectedCash)}`,
+      `Dinheiro contado: ${money(receiptData.countedCash)}`,
+      `Diferença de caixa: ${money(receiptData.cashDifference)}`,
+      ...methods.flatMap(method => [`${method} esperado: ${money(electronicExpected[method])}`, `${method} conferido: ${money(electronicCounted[method])}`]),
       ...(session.closing_note ? [`Justificativa: ${session.closing_note}`] : []),
-      "--------------------------------",
-      "Comprovante de controle interno",
     ];
-    const closingReceipt: ReceiptPreview = { title: "COMPROVANTE DE FECHAMENTO DE CAIXA", rows, filename: `fechamento-caixa-${session.id.slice(0, 8)}.pdf` };
+    const closingReceipt: ReceiptPreview = { title: "COMPROVANTE DE FECHAMENTO DE CAIXA", rows, filename };
     setReceiptPreview(closingReceipt);
-    if (download) printCashReceipt(closingReceipt.title, closingReceipt.rows, closingReceipt.filename);
+    if (download) printCashCloseoutReceipt(receiptData, filename);
     else setReceiptOpen(true);
   };
 
@@ -228,7 +254,7 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
           <form className="cash-card cash-close-form" onSubmit={closeSession}><div className="cash-card-title"><span className="cash-icon"><ClipboardCheck size={18}/></span><div><h3>Fechamento e conferência</h3><p>Conte o dinheiro físico e confira os meios não monetários separadamente.</p></div></div><label>Dinheiro contado<input required type="number" min="0" step="0.01" value={countedCash} onChange={event => setCountedCash(event.target.value)}/></label><div className="cash-count-methods">{methods.map(method => <label key={method}>{method}<input type="number" min="0" step="0.01" value={nonCashCount[method] ?? "0"} onChange={event => setNonCashCount(current => ({ ...current, [method]: event.target.value }))}/><small>Esperado: {money(Number(expectedNonCash[method] ?? 0))}</small></label>)}</div><div className="cash-difference-preview"><span>Diferença de dinheiro</span><b>{money((Number(countedCash) || 0) - summary.expected_cash)}</b></div><label>Justificativa de diferenças<textarea maxLength={1000} value={closingNote} onChange={event => setClosingNote(event.target.value)} placeholder="Obrigatória quando houver divergência"/></label><button className="cash-danger" disabled={saving}><ClipboardCheck size={16}/>{saving ? "Fechando…" : "Conferir e fechar caixa"}</button></form></div>}
         <section className="cash-card"><div className="cash-card-title"><span className="cash-icon"><History size={18}/></span><div><h3>Movimentações da sessão</h3><p>Registros históricos do turno; nenhuma linha é apagada.</p></div></div>{movements.length ? <div className="cash-movement-list">{movements.map(movement => <div key={movement.id}><span>{display(movement)}<small>{movement.note || "—"}</small></span><b className={movement.movement_type === "withdrawal" || movement.movement_type === "refund" ? "negative" : ""}>{movement.movement_type === "withdrawal" || movement.movement_type === "refund" ? "− " : "+ "}{money(Number(movement.amount))}</b><time>{when(movement.created_at)}</time></div>)}</div> : <div className="cash-empty">Nenhuma movimentação registrada.</div>}</section>
       </>}
-      {selectedSession?.status === "closed" && <section className="cash-card cash-closed-summary"><div className="cash-card-title"><span className="cash-icon"><ClipboardCheck size={18}/></span><div><h3>Conferência do fechamento</h3><p>Fechado em {when(selectedSession.closed_at)}.</p></div><div className="cash-receipt-actions"><button className="cash-secondary" onClick={() => printCloseout(selectedSession, summary, false)}>Visualizar relatório</button><button className="cash-secondary" onClick={() => printCloseout(selectedSession)}><Printer size={15}/> Baixar cupom PDF</button></div></div><div className="cash-method-grid"><div><span>Dinheiro esperado</span><b>{money(Number(selectedSession.expected_cash ?? 0))}</b></div><div><span>Dinheiro contado</span><b>{money(Number(selectedSession.closing_amount ?? 0))}</b></div><div><span>Diferença</span><b className={Number(selectedSession.cash_difference) < 0 ? "negative" : ""}>{money(Number(selectedSession.cash_difference ?? 0))}</b></div>{methods.map(method => <div key={method}><span>{method} contado</span><b>{money(Number(selectedSession.non_cash_count?.[method] ?? 0))}</b></div>)}</div>{selectedSession.closing_note && <p className="cash-hint">Justificativa: {selectedSession.closing_note}</p>}</section>}
+      {selectedSession?.status === "closed" && <section className="cash-card cash-closed-summary"><div className="cash-card-title"><span className="cash-icon"><ClipboardCheck size={18}/></span><div><h3>Conferência do fechamento</h3><p>Fechado em {when(selectedSession.closed_at)}.</p></div><div className="cash-receipt-actions"><label className="cash-paper-picker">Papel<select value={paperWidth} onChange={event => setPaperWidth(Number(event.target.value) as 58 | 80)}><option value={58}>58 mm</option><option value={80}>80 mm</option></select></label><button className="cash-secondary" onClick={() => printCloseout(selectedSession, summary, false)}>Visualizar relatório</button><button className="cash-secondary" onClick={() => printCloseout(selectedSession)}><Printer size={15}/> Baixar cupom PDF</button></div></div><div className="cash-method-grid"><div><span>Dinheiro esperado</span><b>{money(Number(selectedSession.expected_cash ?? 0))}</b></div><div><span>Dinheiro contado</span><b>{money(Number(selectedSession.closing_amount ?? 0))}</b></div><div><span>Diferença</span><b className={Number(selectedSession.cash_difference) < 0 ? "negative" : ""}>{money(Number(selectedSession.cash_difference ?? 0))}</b></div>{methods.map(method => <div key={method}><span>{method} contado</span><b>{money(Number(selectedSession.non_cash_count?.[method] ?? 0))}</b></div>)}</div>{selectedSession.closing_note && <p className="cash-hint">Justificativa: {selectedSession.closing_note}</p>}</section>}
       <section className="cash-card cash-history"><div className="cash-card-title"><span className="cash-icon"><History size={18}/></span><div><h3>Histórico de sessões</h3><p>{filteredSessions.length} sessões visíveis para seu perfil.</p></div></div><div className="cash-filters"><label>De<input type="date" value={fromDate} onChange={event => setFromDate(event.target.value)}/></label><label>Até<input type="date" value={toDate} onChange={event => setToDate(event.target.value)}/></label>{role === "admin" && <><label>Operador<select value={operatorFilter} onChange={event => setOperatorFilter(event.target.value)}><option value="">Todos</option>{operators.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label><label>Terminal<select value={registerFilter} onChange={event => setRegisterFilter(event.target.value)}><option value="">Todos</option>{registers.map(register => <option key={register.id} value={register.id}>{register.name}</option>)}</select></label></>}</div>{filteredSessions.length ? <div className="cash-history-table"><table><thead><tr><th>Terminal / turno</th><th>Operador</th><th>Abertura</th><th>Fechamento</th><th>Status</th><th>Diferença</th><th/></tr></thead><tbody>{filteredSessions.map(session => <tr key={session.id}><td><b>{session.cash_registers?.name ?? "Caixa"}</b><small>{session.shift_name}</small></td><td>{session.profiles?.display_name ?? "—"}</td><td>{when(session.opened_at)}</td><td>{when(session.closed_at)}</td><td><span className={`cash-status ${session.status}`}>{session.status === "open" ? "Aberto" : "Fechado"}</span></td><td>{session.cash_difference === null ? "—" : money(Number(session.cash_difference))}</td><td><button className="cash-secondary" onClick={() => setSelectedId(session.id)}>Detalhes</button></td></tr>)}</tbody></table></div> : <div className="cash-empty">Nenhuma sessão no período selecionado.</div>}</section>
     </>}
   </section>{receiptOpen && receiptPreview && <div className="cash-receipt-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setReceiptOpen(false); }}><section className="cash-receipt-preview" role="dialog" aria-modal="true" aria-labelledby="cash-receipt-title"><header><div><span className="cash-kicker">PRÉVIA DO COMPROVANTE</span><h3 id="cash-receipt-title">{receiptPreview.title}</h3></div><button className="cash-secondary" onClick={() => setReceiptOpen(false)} aria-label="Fechar prévia"><X size={16}/></button></header><div className="cash-receipt-paper"><h4>{receiptPreview.title}</h4><pre>{receiptPreview.rows.join("\n")}</pre></div><footer><button className="cash-secondary" onClick={() => setReceiptOpen(false)}>Fechar</button><button className="cash-primary" onClick={() => printCashReceipt(receiptPreview.title, receiptPreview.rows, receiptPreview.filename)}><Printer size={15}/> Baixar cupom PDF</button></footer></section></div>}</div>;
