@@ -611,10 +611,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
       const button = actions.querySelector<HTMLButtonElement>(".product-status-toggle")!;
       button.textContent = product.is_active === false ? "Reativar" : "Inativar";
       button.setAttribute("aria-label", `${product.is_active === false ? "Reativar" : "Inativar"} ${product.name}`);
-      const productDetails = row.querySelector<HTMLElement>(":scope > span:nth-child(2)");
-      let cost = productDetails?.querySelector<HTMLElement>(".product-row-cost");
-      if (!cost && productDetails) { cost = document.createElement("small"); cost.className = "product-row-cost"; productDetails.append(cost); }
-      if (cost) cost.textContent = `Custo ${money(product.cost_price ?? 0)} · Ganho ${money(product.price - (product.cost_price ?? 0))}`;
+      row.querySelector(".product-row-cost")?.remove();
     });
     const handleProductRow = async (event: MouseEvent) => {
       if (role !== "admin" || active !== "Produtos & estoque") return;
