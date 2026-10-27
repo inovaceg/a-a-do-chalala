@@ -140,10 +140,11 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
     setReceiptOpen(true);
   };
 
-  const openSession = async (event: React.FormEvent) => {
+  const openSession = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const submittedAmount = Number(event.currentTarget.querySelector<HTMLInputElement>('input[type="number"]')?.value ?? openingAmount);
     setSaving(true); setError(""); setSuccess("");
-    const { data, error: requestError } = await supabase.rpc("open_cash_session", { p_register_id: registerId, p_opening_amount: Number(openingAmount), p_opening_note: openingNote.trim() || null, p_shift_name: shiftName.trim() });
+    const { data, error: requestError } = await supabase.rpc("open_cash_session", { p_register_id: registerId, p_opening_amount: submittedAmount, p_opening_note: openingNote.trim() || null, p_shift_name: shiftName.trim() });
     setSaving(false);
     if (requestError || !data) { setError(requestError?.message || "Não foi possível abrir o caixa."); return; }
     const opened = data as Session;
