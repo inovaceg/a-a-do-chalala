@@ -769,19 +769,35 @@ export default function Comandas(
         if (!selected || !selectedCustomerWhatsapp) return;
         const phone = selectedCustomerWhatsapp.replace(/\D/g, "");
         const activeItems = items.filter(item => item.status === "active");
-        const itemLines = activeItems.map(item => `• ${item.quantity}x ${item.product_name} — ${money(totalOf(item))}${item.extras.length ? ` (com ${item.extras.map(extra => extra.name).join(", ")})` : ""}`);
+        const total = activeItems.reduce((sum, item) => sum + totalOf(item), 0);
+        const itemLines = activeItems.flatMap(item => [
+            `• ${item.quantity}x ${item.product_name} — ${money(totalOf(item))}`,
+            ...item.extras.map(extra => `  + ${extra.name}`)
+        ]);
         const paymentLines = payments.map(payment => `• ${payment.method}: ${money(Number(payment.amount))}`);
+        const greeting = selected.customer_name?.trim()
+            ? `Olá, ${selected.customer_name.trim()}! 💜`
+            : "Olá! 💜";
         const text = [
-            `Olá${selected.customer_name ? ` ${selected.customer_name}` : ""}!`,
-            `Segue o resumo da comanda #${selected.tab_number} - ${storeName}:`,
+            "🍇 *AÇAÍ DO CHALALÁ*",
+            "*COMPROVANTE DE CONSUMO*",
+            "",
+            greeting,
+            "",
+            `Sua comanda *#${selected.tab_number}* foi finalizada com sucesso!`,
+            "",
+            "━━━━━━━━━━━━",
+            "*RESUMO DO PEDIDO*",
             "",
             ...itemLines,
             "",
-            `Total: ${money(activeItems.reduce((sum, item) => sum + totalOf(item), 0))}`,
-            "Pagamentos:",
-            ...(paymentLines.length ? paymentLines : ["• Nenhum pagamento registrado"]),
+            "━━━━━━━━━━━━",
+            `*TOTAL: ${money(total)}*`,
+            ...(paymentLines.length ? ["", "*FORMA DE PAGAMENTO*", ...paymentLines, "", "✅ *PAGAMENTO CONCLUÍDO*"] : []),
             "",
-            "Obrigado pela preferência!"
+            "Obrigado pela preferência! 💜",
+            "",
+            "_Comprovante não fiscal._"
         ].join("\n");
         window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
     };
