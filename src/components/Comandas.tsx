@@ -31,6 +31,7 @@ export default function Comandas({ active, role }: { active: boolean; role: "adm
   const [storeName, setStoreName] = useState("");
   const [operatorNames, setOperatorNames] = useState<Map<string, string>>(new Map());
   const [pendingBalances, setPendingBalances] = useState<Map<string, number>>(new Map());
+  const [paidBalances, setPaidBalances] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -86,15 +87,20 @@ export default function Comandas({ active, role }: { active: boolean; role: "adm
       ]);
       const orderTab = new Map((orderData ?? []).map(order => [order.id, order.tab_id]));
       const totals = new Map<string, number>();
+      const paid = new Map<string, number>();
       (itemData.data ?? []).filter(item => item.status === "active").forEach(item => {
         const tabId = orderTab.get(item.order_id);
         if (!tabId) return;
         const extrasTotal = ((item.extras ?? []) as ProductExtra[]).reduce((sum, extra) => sum + Number(extra.price), 0);
         totals.set(tabId, (totals.get(tabId) ?? 0) + (Number(item.unit_price) + extrasTotal) * Number(item.quantity));
       });
-      (paymentData.data ?? []).forEach(payment => totals.set(payment.tab_id, (totals.get(payment.tab_id) ?? 0) - Number(payment.amount)));
+      (paymentData.data ?? []).forEach(payment => {
+        paid.set(payment.tab_id, (paid.get(payment.tab_id) ?? 0) + Number(payment.amount));
+        totals.set(payment.tab_id, (totals.get(payment.tab_id) ?? 0) - Number(payment.amount));
+      });
       setPendingBalances(new Map([...totals].map(([id, balance]) => [id, Math.max(0, balance)])));
-    } else setPendingBalances(new Map());
+      setPaidBalances(paid);
+    } else { setPendingBalances(new Map()); setPaidBalances(new Map()); }
     setLoading(false);
   }, [active, role]);
 
@@ -248,7 +254,7 @@ export default function Comandas({ active, role }: { active: boolean; role: "adm
 
   return <section className="comandas-page">
     <header className="comandas-heading"><div><span className="comandas-kicker">ATENDIMENTO · {storeName.toLocaleUpperCase("pt-BR")}</span><h2>Comandas</h2><p>Acompanhe o consumo e receba pagamentos sem encerrar o atendimento.</p></div><button className="comandas-primary" onClick={() => { setError(""); setOpenForm(true); }}><Plus size={17}/> Nova comanda</button></header>
-    <div className="comandas-metrics"><article><small>Comandas abertas</small><b>{activeTabs.length}</b></article><article><small>Total pendente</small><b>{money(activeTabs.reduce((sum, tab) => sum + (pendingBalances.get(tab.id) ?? 0), 0))}</b></article><article><small>Fechadas hoje</small><b>{tabs.filter(tab => tab.status === "closed" && tab.closed_at?.slice(0, 10) === new Date().toISOString().slice(0, 10)).length}</b></article></div>
+    <div className="comandas-metrics"><article><small>Comandas abertas</small><b>{activeTabs.length}</b></article><article><small>Valor nas comandas abertas</small><b>{money(activeTabs.reduce((sum, tab) => sum + (pendingBalances.get(tab.id) ?? 0) + (paidBalances.get(tab.id) ?? 0), 0))}</b></article><article><small>Valores pagos</small><b>{money(tabs.reduce((sum, tab) => sum + (paidBalances.get(tab.id) ?? 0), 0))}</b></article><article><small>Fechadas hoje</small><b>{tabs.filter(tab => tab.status === "closed" && tab.closed_at?.slice(0, 10) === new Date().toISOString().slice(0, 10)).length}</b></article></div>
     <div className="comandas-toolbar"><label><Search size={16}/><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar número ou nome do cliente"/></label><select value={filter} onChange={event => setFilter(event.target.value)}><option value="all">Todas</option><option value="active">Abertas e pendentes</option>{Object.entries(labels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><button title={sortNewest ? "Mais antigas primeiro" : "Mais recentes primeiro"} onClick={() => setSortNewest(value => !value)}>{sortNewest ? <ArrowDownWideNarrow size={17}/> : <ArrowUpNarrowWide size={17}/>}</button><button title="Atualizar comandas" onClick={() => void load()}><RefreshCw size={16}/></button></div>
     {loading ? <div className="comandas-empty">Carregando comandas…</div> : filteredTabs.length ? <div className="comandas-grid">{filteredTabs.map(tab => <button key={tab.id} className={`comanda-card ${selected?.id === tab.id ? "selected" : ""}`} onClick={() => void loadDetail(tab)}><span className={`comanda-status status-${tab.status}`}>{labels[tab.status]}</span><b className="comanda-number">#{tab.tab_number}</b><span className="comanda-customer">{tab.customer_name || "Sem identificação"}</span><small>{new Date(tab.opened_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })} · {operatorNames.get(tab.opened_by) ?? "Equipe"}</small></button>)}</div> : <div className="comandas-empty"><ClipboardList size={30}/><b>Nenhuma comanda nesta visualização</b><span>Abra uma comanda para começar a registrar o consumo.</span></div>}
     {selected && <section className="comanda-detail"><header><div><span className="comandas-kicker">DETALHES</span><h3>Comanda #{selected.tab_number} <small>{selected.customer_name || "Sem identificação"}</small></h3></div><div className="comanda-detail-actions">{role === "admin" && selected.status === "closed" && <button className="comandas-primary" onClick={() => void reopenTab()} disabled={saving}><RefreshCw size={15}/>{saving ? "Reabrindo…" : "Reabrir para ajustes"}</button>}<button className="comandas-icon-button" onClick={() => setSelected(null)} aria-label="Fechar detalhes"><X size={18}/></button></div></header>
