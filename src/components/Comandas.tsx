@@ -114,6 +114,11 @@ export default function Comandas({ active, role }: { active: boolean; role: "adm
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (active) { const channel = supabase.channel("tabs-live").on("postgres_changes", { event: "*", schema: "public", table: "tabs" }, () => void load()).subscribe(); return () => { void supabase.removeChannel(channel); }; } }, [active, load]);
+  const activeTabs = tabs.filter(tab => activeStatuses.includes(tab.status));
+  const totalOf = (item: Item) => (Number(item.unit_price) + item.extras.reduce((sum, extra) => sum + Number(extra.price), 0)) * item.quantity;
+  const tabTotal = items.filter(item => item.status === "active").reduce((sum, item) => sum + totalOf(item), 0);
+  const paidTotal = payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
+  const due = Math.max(0, tabTotal - paidTotal);
   useEffect(() => {
     setPaymentChange(paymentMethod === "Dinheiro" ? Math.max(0, Number(paymentAmount) - due).toFixed(2) : "0.00");
     const fields = document.querySelectorAll<HTMLInputElement>(".comanda-payment-form input[type=number]");
@@ -128,11 +133,6 @@ export default function Comandas({ active, role }: { active: boolean; role: "adm
     const term = search.trim().toLocaleLowerCase("pt-BR");
     return [...tabs].filter(tab => (filter === "all" || (filter === "active" ? activeStatuses.includes(tab.status) : tab.status === filter)) && (!term || `${tab.tab_number} ${tab.customer_name ?? ""}`.toLocaleLowerCase("pt-BR").includes(term))).sort((a, b) => sortNewest ? b.opened_at.localeCompare(a.opened_at) : a.opened_at.localeCompare(b.opened_at));
   }, [tabs, search, filter, sortNewest]);
-  const activeTabs = tabs.filter(tab => activeStatuses.includes(tab.status));
-  const totalOf = (item: Item) => (Number(item.unit_price) + item.extras.reduce((sum, extra) => sum + Number(extra.price), 0)) * item.quantity;
-  const tabTotal = items.filter(item => item.status === "active").reduce((sum, item) => sum + totalOf(item), 0);
-  const paidTotal = payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
-  const due = Math.max(0, tabTotal - paidTotal);
 
   if (!active) return null;
 
