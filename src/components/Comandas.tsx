@@ -181,16 +181,16 @@ export default function Comandas(
         const tabsError = tabsData.error;
 
         const {
-            data: profiles,
-            error: profilesError
-        } = currentStore ? await supabase.rpc("list_store_profile_names", {
+            data: operatorTabs,
+            error: operatorTabsError
+        } = currentStore ? await supabase.rpc("list_store_tabs_with_operator", {
             p_store_id: currentStore
         }) : {
             data: [],
             error: null
         };
 
-        if (membership.error || tabsError || productData.error || sessions.error || profilesError) setError(
+        if (membership.error || tabsError || productData.error || sessions.error || operatorTabsError) setError(
             "Não foi possível carregar as comandas. Atualize a tela e tente novamente."
         );
 
@@ -211,11 +211,8 @@ export default function Comandas(
         setTabs(currentTabs);
 
         const namesById = new Map<string, string>(
-            (profiles.data ?? []).map(profile => [profile.id, profile.display_name])
+            (operatorTabs ?? []).map(tab => [tab.opened_by, tab.opened_by_name ?? ""])
         );
-        currentTabs.forEach(tab => {
-            if (tab.opened_by_name) namesById.set(tab.opened_by, tab.opened_by_name);
-        });
         setOperatorNames(namesById);
 
         if (currentTabs.length) {
