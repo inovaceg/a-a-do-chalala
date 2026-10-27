@@ -4,6 +4,7 @@ import {
     ArrowDownWideNarrow,
     ArrowUpNarrowWide,
     ClipboardList,
+    MessageCircle,
     Plus,
     RefreshCw,
     Search,
@@ -117,6 +118,7 @@ export default function Comandas(
     const [orders, setOrders] = useState<Order[]>([]);
     const [items, setItems] = useState<Item[]>([]);
     const [payments, setPayments] = useState<Payment[]>([]);
+    const [selectedCustomerWhatsapp, setSelectedCustomerWhatsapp] = useState("");
     const [storeId, setStoreId] = useState("");
     const [cashSessionId, setCashSessionId] = useState("");
     const [storeName, setStoreName] = useState("");
@@ -271,6 +273,10 @@ export default function Comandas(
         const nextOrders = (orderResult.data ?? []) as Order[];
         setOrders(nextOrders);
         setPayments((paymentResult.data ?? []) as Payment[]);
+        if (tab.customer_id) {
+            const { data: customer } = await supabase.from("customers").select("whatsapp").eq("id", tab.customer_id).maybeSingle();
+            setSelectedCustomerWhatsapp(customer?.whatsapp ?? "");
+        } else setSelectedCustomerWhatsapp("");
 
         if (nextOrders.length) {
             const {
@@ -759,6 +765,27 @@ export default function Comandas(
         setNotice(reprint ? "Reimpressão enviada." : "Pedido enviado para produção.");
     };
 
+    const shareTabOnWhatsApp = () => {
+        if (!selected || !selectedCustomerWhatsapp) return;
+        const phone = selectedCustomerWhatsapp.replace(/\D/g, "");
+        const activeItems = items.filter(item => item.status === "active");
+        const itemLines = activeItems.map(item => `• ${item.quantity}x ${item.product_name} — ${money(totalOf(item))}${item.extras.length ? ` (com ${item.extras.map(extra => extra.name).join(", ")})` : ""}`);
+        const paymentLines = payments.map(payment => `• ${payment.method}: ${money(Number(payment.amount))}`);
+        const text = [
+            `Olá${selected.customer_name ? ` ${selected.customer_name}` : ""}!`,
+            `Segue o resumo da comanda #${selected.tab_number} - ${storeName}:`,
+            "",
+            ...itemLines,
+            "",
+            `Total: ${money(activeItems.reduce((sum, item) => sum + totalOf(item), 0))}`,
+            "Pagamentos:",
+            ...(paymentLines.length ? paymentLines : ["• Nenhum pagamento registrado"]),
+            "",
+            "Obrigado pela preferência!"
+        ].join("\n");
+        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+    };
+
     return (
         <section className="comandas-page">
             <header className="comandas-heading"><div><span className="comandas-kicker">ATENDIMENTO · {storeName.toLocaleUpperCase("pt-BR")}</span><h2>Comandas</h2><p>Acompanhe o consumo e receba pagamentos sem encerrar o atendimento.</p></div><button
@@ -789,7 +816,7 @@ export default function Comandas(
             {selected && <section className="comanda-detail"><header><div><span className="comandas-kicker">DETALHES</span><h3>Comanda #{selected.tab_number} <small>{selected.customer_name || "Sem identificação"}</small></h3></div><div className="comanda-detail-actions">{activeStatuses.includes(selected.status) && orders.length === 0 && items.length === 0 && payments.length === 0 && <button
                             className="comandas-primary"
                             onClick={() => void closeEmptyTab()}
-                            disabled={saving}>Fechar sem consumo</button>}{role === "admin" && selected.status === "closed" && <button
+                            disabled={saving}>Fechar sem consumo</button>}{selected.status === "closed" && selectedCustomerWhatsapp && items.some(item => item.status === "active") && <button className="comandas-primary" onClick={shareTabOnWhatsApp}><MessageCircle size={15} />Enviar resumo no WhatsApp</button>}{role === "admin" && selected.status === "closed" && <button
                             className="comandas-primary"
                             onClick={() => void reopenTab()}
                             disabled={saving}><RefreshCw size={15} />{saving ? "Reabrindo…" : "Reabrir para ajustes"}</button>}<button
