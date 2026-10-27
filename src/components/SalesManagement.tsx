@@ -12,7 +12,7 @@ type Product = { id: string; name: string; price: number; extras: Extra[] };
 type SaleItem = { id: string; product_id: string | null; product_name: string; quantity: number; unit_price: number; extras: Extra[]; line_total: number };
 type PaymentMethod = "Dinheiro" | "Cartão de débito" | "Cartão de crédito" | "Pix" | "Vale alimentação" | "Crediário";
 type SalePayment = { id: string; method: PaymentMethod; amount: number };
-type Sale = { id: string; receipt_number: string; total: number; subtotal: number; delivery_fee?: number; discount_amount: number; change_amount: number; status: "completed" | "cancelled"; created_at: string; credit_customer: string | null; credit_due_date: string | null; customer_id: string | null; customer_name: string | null; customer_whatsapp: string | null; courier_id: string | null; courier_name?: string; is_delivery?: boolean; delivery_address?: string | null; neighborhood?: string | null; customers?: { neighborhood: string | null } | { neighborhood: string | null }[] | null; sale_items: SaleItem[]; sale_payments: SalePayment[] };
+type Sale = { id: string; receipt_number: string; total: number; subtotal: number; delivery_fee?: number; discount_amount: number; change_amount: number; status: "completed" | "cancelled"; created_at: string; credit_customer: string | null; credit_due_date: string | null; customer_id: string | null; customer_name: string | null; customer_whatsapp: string | null; courier_id: string | null; courier_name?: string; is_delivery?: boolean; is_tab?: boolean; delivery_address?: string | null; neighborhood?: string | null; customers?: { neighborhood: string | null } | { neighborhood: string | null }[] | null; sale_items: SaleItem[]; sale_payments: SalePayment[] };
 type EditItem = { key: string; productId: string; quantity: number; extras: Extra[] };
 type EditPayment = { key: string; method: PaymentMethod; amount: number };
 const methods: PaymentMethod[] = ["Dinheiro", "Cartão de débito", "Cartão de crédito", "Pix", "Vale alimentação", "Crediário"];
@@ -55,14 +55,32 @@ function SalesManagement({ active, role }: { active: boolean; role: "admin" | "o
       }
       salesQuery = salesQuery.eq("created_by", user.id);
     }
-    const [{ data, error: salesError }, { data: productData, error: productsError }, { data: courierData }] = await Promise.all([
+    let tabsQuery = supabase.from("tabs").select("id,tab_number,status,opened_at,closed_at,customer_id,customer_name,opened_by,tab_orders(tab_items(id,product_id,product_name,quantity,unit_price,extras,status)),tab_payments(id,method,amount,change_amount,received_at)").eq("status", "closed").order("closed_at", { ascending: false }).limit(1000);
+    if (role === "operator") {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) tabsQuery = tabsQuery.eq("opened_by", user.id);
+    }
+    const [{ data, error: salesError }, { data: productData, error: productsError }, { data: courierData }, { data: tabData, error: tabsError }] = await Promise.all([
       salesQuery,
       supabase.from("products").select("id,name,price,extras").eq("is_active", true).order("name"),
       supabase.from("couriers").select("id,name").order("name"),
+      tabsQuery,
     ]);
-    if (salesError || productsError) setError("Não foi possível carregar todas as informações de vendas. Tente novamente.");
+    if (salesError || productsError || tabsError) setError("Não foi possível carregar todas as informações de vendas. Tente novamente.");
     const courierNames = new Map((courierData ?? []).map(courier => [courier.id, courier.name]));
-    setSales(((data ?? []) as unknown as Sale[]).map(sale => ({ ...sale, neighborhood: (Array.isArray(sale.customers) ? sale.customers[0] : sale.customers)?.neighborhood ?? null, courier_name: sale.courier_id ? courierNames.get(sale.courier_id) ?? "Motoboy não localizado" : "Sem motoboy" })));
+    const regularSales = ((data ?? []) as unknown as Sale[]).map(sale => ({ ...sale, neighborhood: (Array.isArray(sale.customers) ? sale.customers[0] : sale.customers)?.neighborhood ?? null, courier_name: sale.courier_id ? courierNames.get(sale.courier_id) ?? "Motoboy não localizado" : "Sem motoboy" }));
+    const tabSales = (tabData ?? []).map((tab: any): Sale => {
+      const items = (tab.tab_orders ?? []).flatMap((order: any) => order.tab_items ?? []).filter((item: any) => item.status === "active");
+      const saleItems = items.map((item: any) => {
+        const extras = (item.extras ?? []) as Extra[];
+        const lineTotal = (Number(item.unit_price) + extras.reduce((sum, extra) => sum + Number(extra.price), 0)) * Number(item.quantity);
+        return { id: item.id, product_id: item.product_id, product_name: item.product_name, quantity: Number(item.quantity), unit_price: Number(item.unit_price), extras, line_total: lineTotal };
+      });
+      const salePayments = (tab.tab_payments ?? []).map((payment: any) => ({ id: payment.id, method: payment.method as PaymentMethod, amount: Number(payment.amount) }));
+      const total = saleItems.reduce((sum: number, item: SaleItem) => sum + item.line_total, 0);
+      return { id: tab.id, receipt_number: `COMANDA ${tab.tab_number}`, total, subtotal: total, discount_amount: 0, change_amount: (tab.tab_payments ?? []).reduce((sum: number, payment: any) => sum + Number(payment.change_amount ?? 0), 0), status: "completed", created_at: tab.closed_at ?? tab.opened_at, credit_customer: null, credit_due_date: null, customer_id: tab.customer_id, customer_name: tab.customer_name, customer_whatsapp: null, courier_id: null, is_tab: true, sale_items: saleItems, sale_payments: salePayments };
+    });
+    setSales([...regularSales, ...tabSales].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
     setProducts((productData ?? []) as Product[]);
     setLoading(false);
   }, [role]);
@@ -85,7 +103,7 @@ function SalesManagement({ active, role }: { active: boolean; role: "admin" | "o
   }, 0) - Number(editing?.discount_amount ?? 0) + Number(editing?.delivery_fee ?? 0), [items, productById, editing]);
 
   const startEdit = (sale: Sale) => {
-    if (role !== "admin") return;
+    if (role !== "admin" || sale.is_tab) return;
     setEditing(sale);
     setItems(sale.sale_items.map((item, index) => ({ key: `${item.id}-${index}`, productId: item.product_id ?? "", quantity: item.quantity, extras: item.extras ?? [] })));
     setPayments(sale.sale_payments.map((payment, index) => ({ key: `${payment.id}-${index}`, method: payment.method, amount: Number(payment.amount) })));
@@ -116,7 +134,7 @@ function SalesManagement({ active, role }: { active: boolean; role: "admin" | "o
   };
 
   const cancelSale = async (sale: Sale) => {
-    if (role !== "admin" || !window.confirm(`Cancelar a venda ${sale.receipt_number}?`)) return;
+    if (role !== "admin" || sale.is_tab || !window.confirm(`Cancelar a venda ${sale.receipt_number}?`)) return;
     setError("");
     const { error: cancelError } = await supabase.rpc("cancel_sale", { p_sale_id: sale.id });
     if (cancelError) { setError(cancelError.message || "Não foi possível cancelar a venda."); return; }
@@ -125,7 +143,7 @@ function SalesManagement({ active, role }: { active: boolean; role: "admin" | "o
   };
 
   const deleteSale = async (sale: Sale) => {
-    if (role !== "admin" || !window.confirm(`Excluir permanentemente a venda ${sale.receipt_number} no valor de ${money(sale.total)}? Essa ação não pode ser desfeita. O registro de auditoria será mantido.`)) return;
+    if (role !== "admin" || sale.is_tab || !window.confirm(`Excluir permanentemente a venda ${sale.receipt_number} no valor de ${money(sale.total)}? Essa ação não pode ser desfeita. O registro de auditoria será mantido.`)) return;
     setDeleting(sale.id);
     setError("");
     const { error: deleteError } = await supabase.rpc("delete_sale_with_audit", { p_sale_id: sale.id });
