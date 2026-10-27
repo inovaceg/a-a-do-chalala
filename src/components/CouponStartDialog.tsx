@@ -6,7 +6,8 @@ import "./courier-management.css";
 
 export type CouponCustomer = { id: string; name: string; whatsapp: string; street: string | null; address_number: string | null; neighborhood: string | null; city: string | null; address_complement: string | null; postal_code: string | null };
 export type DeliveryCourier = { id: string; name: string; whatsapp: string };
-export type CouponSelection = { customer: CouponCustomer | null; delivery: boolean; deliveryAddress: string; courier: DeliveryCourier | null };
+export type CouponSelection = { customer: CouponCustomer | null; delivery: boolean; deliveryAddress: string; deliveryFee: number; courier: DeliveryCourier | null };
+type DeliveryZone = { neighborhood: string; delivery_fee: number };
 type CustomerFields = Omit<CouponCustomer, "id">;
 type Props = { open: boolean; onCancel: () => void; onConfirm: (selection: CouponSelection) => void };
 const customerColumns = "id,name,whatsapp,street,address_number,neighborhood,city,address_complement,postal_code";
@@ -29,6 +30,7 @@ export default function CouponStartDialog({ open, onCancel, onConfirm }: Props) 
   const [whatsappMatches, setWhatsappMatches] = useState<CouponCustomer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<CouponCustomer | null>(null);
   const [couriers, setCouriers] = useState<DeliveryCourier[]>([]);
+  const [deliveryZones, setDeliveryZones] = useState<DeliveryZone[]>([]);
   const [selectedCourierId, setSelectedCourierId] = useState("");
   const [couriersLoading, setCouriersLoading] = useState(false);
   const [saving, setSaving] = useState(false);
