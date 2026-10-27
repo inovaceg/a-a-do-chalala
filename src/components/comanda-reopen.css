@@ -1,0 +1,1 @@
+.comanda-detail-actions{display:flex;align-items:center;gap:8px}.comanda-detail-actions .comandas-primary{white-space:nowrap}@media(max-width:520px){.comanda-detail-actions{align-items:flex-start}.comanda-detail-actions .comandas-primary{padding:8px 9px;font-size:9px}}
