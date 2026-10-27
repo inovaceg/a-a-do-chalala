@@ -50,11 +50,17 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
       supabase.rpc("list_cash_registers"),
       supabase.from("cash_sessions").select("id,register_id,opened_by,closed_by,status,opening_amount,closing_amount,opened_at,closed_at,opening_note,shift_name,closing_note,expected_cash,cash_difference,non_cash_count,cash_registers(name),profiles!cash_sessions_opened_by_fkey(display_name)").order("opened_at", { ascending: false }).limit(300),
     ]);
-    if (registerError || sessionError) setError("Não foi possível carregar as sessões e caixas.");
     const currentUser = authData.user?.id ?? "";
     const loadedSessions = (sessionData ?? []) as unknown as Session[];
     setSessions(loadedSessions);
-    setRegisters((registerData ?? []) as Register[]);
+    if (registerError) {
+      const { data: registerFallback, error: fallbackError } = await supabase.from("cash_registers").select("id,name,is_active").eq("is_active", true).order("name");
+      setRegisters((registerFallback ?? []).map(register => ({ ...register, is_open: false })) as Register[]);
+      if (fallbackError) setError(`Não foi possível carregar os caixas físicos: ${fallbackError.message}`);
+    } else {
+      setRegisters((registerData ?? []) as Register[]);
+    }
+    if (sessionError) setError(`Não foi possível carregar o histórico de caixas: ${sessionError.message}`);
     const openOwned = loadedSessions.find(session => session.status === "open" && session.opened_by === currentUser);
     const nextId = preferredId ?? openOwned?.id ?? (role === "admin" ? loadedSessions.find(session => session.status === "open")?.id : undefined) ?? "";
     setSelectedId(nextId);
