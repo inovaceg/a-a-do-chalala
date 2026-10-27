@@ -16,6 +16,7 @@ import { jsPDF } from "jspdf";
 import { Activity, ArrowUpRight, Banknote, Bell, Boxes, CalendarDays, Check, ChevronDown, Clock3, Coffee, CreditCard, LayoutDashboard, Menu, Minus, Plus, Printer, Search, ShoppingBag, ShoppingCart, Users, UserCog, Wallet, LogOut, X } from "lucide-react";
 import "./pos-keyboard.css";
 import "./product-edit.css";
+import "./product-images.css";
 import "./combo-editor.css";
 import "./coupon-receipt.css";
 
@@ -36,6 +37,23 @@ const initialProducts: Product[] = [
 const navItems = [{ label: "Visão geral", icon: LayoutDashboard }, { label: "PDV", icon: ShoppingCart }, { label: "Vendas", icon: Banknote }, { label: "Caixa", icon: Wallet }, { label: "Produtos & estoque", icon: Boxes }, { label: "Clientes", icon: Users }, { label: "Financeiro", icon: Wallet }, { label: "Cadastros", icon: UserCog }];
 const money = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const productImageUrl = (path?: string | null) => path ? supabase.storage.from("product-images").getPublicUrl(path).data.publicUrl : "";
+const syncProductImage = (container: HTMLElement, product: Product) => {
+  let image = container.querySelector<HTMLImageElement>("img.product-photo");
+  const emoji = container.querySelector<HTMLElement>(":scope > span");
+  if (!product.image_path) {
+    image?.remove();
+    if (emoji) emoji.hidden = false;
+    return;
+  }
+  if (!image) {
+    image = document.createElement("img");
+    image.className = "product-photo";
+    container.prepend(image);
+  }
+  image.src = productImageUrl(product.image_path);
+  image.alt = product.name;
+  if (emoji) emoji.hidden = true;
+};
 const loadProducts = (): Product[] => { try { const stored = localStorage.getItem("chalala-products"); return stored ? JSON.parse(stored) as Product[] : initialProducts; } catch { return initialProducts; } };
 
 export default function Index({ role, displayName, email }: { role: "admin" | "operator"; displayName: string; email: string }) {
@@ -98,7 +116,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
       if (catalog.data) {
         const savedProducts = catalog.data.map(product => ({ ...product, price: Number(product.price), cost_price: Number(product.cost_price) })) as Product[];
         setCatalogProducts(savedProducts);
-        setProducts(savedProducts.length ? savedProducts : initialProducts);
+        setProducts(savedProducts.length ? savedProducts.filter(product => product.is_active !== false) : initialProducts);
       }
       setExtras((availableExtras.data ?? []).map(extra => ({ ...extra, price: Number(extra.price), cost_price: Number(extra.cost_price) })) as Extra[]);
       if (availableExtras.error) setNotice("Não foi possível carregar os complementos cadastrados.");
@@ -109,6 +127,19 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     });
     return () => { mounted = false; };
   }, []);
+  useEffect(() => {
+    if (active !== "PDV" && active !== "Produtos & estoque") return;
+    let mounted = true;
+    const query = supabase.from("products").select("id,name,category,price,cost_price,color,emoji,kind,extras,combo_items,is_active,image_path");
+    if (role !== "admin") query.eq("is_active", true);
+    void query.then(({ data }) => {
+      if (!mounted || !data) return;
+      const savedProducts = data.map(product => ({ ...product, price: Number(product.price), cost_price: Number(product.cost_price) })) as Product[];
+      setCatalogProducts(savedProducts);
+      setProducts(savedProducts.length ? savedProducts.filter(product => product.is_active !== false) : initialProducts);
+    });
+    return () => { mounted = false; };
+  }, [active, role]);
   useEffect(() => {
     const modal = document.querySelector<HTMLFormElement>(".catalog-modal");
     if (!modal || !dialog) return;
@@ -134,6 +165,55 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     priceInput?.parentElement?.after(label);
     return () => { priceInput?.removeEventListener("input", updatePreview); label.remove(); };
   }, [dialog]);
+  useEffect(() => {
+    const modal = document.querySelector<HTMLFormElement>(".catalog-modal");
+    if (!modal || dialog !== "product") return;
+    modal.querySelector(".product-image-editor")?.remove();
+    const section = document.createElement("section");
+    section.className = "product-image-editor";
+    const heading = document.createElement("b");
+    heading.textContent = "Foto do produto";
+    const helper = document.createElement("small");
+    helper.textContent = "JPG, PNG ou WebP · até 5 MB";
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/jpeg,image/png,image/webp";
+    input.setAttribute("aria-label", "Selecionar foto do produto");
+    input.addEventListener("change", () => {
+      const file = input.files?.[0] ?? null;
+      if (file && (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024)) {
+        setNotice("Escolha uma imagem JPG, PNG ou WebP de até 5 MB.");
+        input.value = "";
+        return;
+      }
+      setFormImage(file);
+      setRemoveProductImage(false);
+    });
+    const previewUrl = formImagePreview || (!removeProductImage ? productImageUrl(editingProduct?.image_path) : "");
+    if (previewUrl) {
+      const image = document.createElement("img");
+      image.src = previewUrl;
+      image.alt = "Prévia da foto do produto";
+      section.append(image);
+    } else {
+      const placeholder = document.createElement("div");
+      placeholder.className = "product-image-placeholder";
+      placeholder.textContent = "Sem foto selecionada";
+      section.append(placeholder);
+    }
+    const controls = document.createElement("div");
+    controls.className = "product-image-controls";
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "secondary-action";
+    removeButton.textContent = "Remover foto";
+    removeButton.disabled = !previewUrl;
+    removeButton.addEventListener("click", () => { setFormImage(null); setRemoveProductImage(true); });
+    controls.append(input, removeButton);
+    section.append(heading, helper, controls);
+    modal.insertBefore(section, modal.querySelector(".form-extras") ?? modal.querySelector(".modal-actions"));
+    return () => { input.removeEventListener("change", () => {}); section.remove(); };
+  }, [dialog, editingProduct, formImagePreview, removeProductImage]);
   useEffect(() => {
     const modal = document.querySelector<HTMLFormElement>(".catalog-modal");
     if (!modal) return;
@@ -180,7 +260,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   }, [dialog, formCombo, editingProduct]);
   const cartTotal = useMemo(() => cart.reduce((sum, item) => sum + item.product.price + item.extras.reduce((n, extra) => n + extra.price, 0), 0), [cart]);
   const filtered = products.filter(p => p.is_active !== false && `${p.name} ${p.category}`.toLowerCase().includes(query.toLowerCase()));
-  const saveProducts = (next: Product[]) => { setProducts(next); setCatalogProducts(next); localStorage.setItem("chalala-products", JSON.stringify(next)); };
+  const saveProducts = (next: Product[]) => { setProducts(next.filter(product => product.is_active !== false)); setCatalogProducts(next); localStorage.setItem("chalala-products", JSON.stringify(next)); };
   const add = (product: Product, picked: Extra[] = []) => { setCart(c => [...c, { id: Date.now() + Math.random(), product, extras: picked }]); };
   const availableExtras = () => extras;
   const beginProduct = (product: Product) => { const choices = availableExtras(); if (choices.length) { setCustomize({ ...product, extras: choices }); setSelectedExtras([]); } else add(product); };
@@ -498,10 +578,20 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   const totalOf = (item: CartItem) => item.product.price + item.extras.reduce((sum, e) => sum + e.price, 0);
   const openForm = (type: "product" | "extra", product?: Product) => { setEditingProduct(product ?? null); setFormName(product?.name ?? ""); setFormPrice(product ? String(product.price) : ""); setFormCostPrice(product ? String(product.cost_price ?? 0) : ""); setFormCategory(product?.category.split(" • ")[0] ?? "Açaí"); setFormCombo(product?.kind === "combo" || Boolean(product?.category.includes("Combo"))); setFormExtras(product?.extras?.map(extra => extra.name) ?? []); setFormImage(null); setRemoveProductImage(false); setDialog(type); };
   useEffect(() => {
+    if (active !== "PDV") return;
+    const cards = Array.from(document.querySelectorAll<HTMLElement>(".product-card"));
+    cards.forEach((card, index) => {
+      const art = card.querySelector<HTMLElement>(".product-art");
+      if (filtered[index] && art) syncProductImage(art, filtered[index]);
+    });
+  }, [active, products, query]);
+  useEffect(() => {
     if (role !== "admin" || active !== "Produtos & estoque") return;
     const rows = Array.from(document.querySelectorAll<HTMLElement>(".catalog-list-row"));
     rows.forEach((row, index) => {
       const product = products[index];
+      const art = row.querySelector<HTMLElement>(".mini-product");
+      if (product && art) syncProductImage(art, product);
       row.querySelectorAll(":scope > .product-status-toggle, :scope > .product-edit-trigger").forEach(element => element.remove());
       if (!product?.id) return;
       let actions = row.querySelector<HTMLDivElement>(".product-row-actions");
@@ -540,9 +630,9 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
         const { error } = await supabase.rpc("set_product_active", { p_product_id: product.id, p_is_active: nextActive });
         if (error) { setNotice("Não foi possível alterar a situação do produto."); return; }
         const update = (items: Product[]) => items.map(item => item.id === product.id ? { ...item, is_active: nextActive } : item);
-        setProducts(update);
+        setProducts(update.filter(item => item.is_active !== false));
         setCatalogProducts(update);
-        setNotice(nextActive ? "Produto reativado e disponível no PDV." : "Produto inativado e removido do PDV.");
+        setNotice(nextActive ? "Produto reativado e disponível no PDV." : "Produto inativado e removido do estoque e do PDV.");
         window.setTimeout(() => setNotice(""), 3000);
         return;
       }
