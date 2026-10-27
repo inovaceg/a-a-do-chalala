@@ -12,7 +12,7 @@ type Product = { id: string; name: string; price: number; extras: Extra[] };
 type SaleItem = { id: string; product_id: string | null; product_name: string; quantity: number; unit_price: number; extras: Extra[]; line_total: number };
 type PaymentMethod = "Dinheiro" | "Cartão de débito" | "Cartão de crédito" | "Pix" | "Vale alimentação" | "Crediário";
 type SalePayment = { id: string; method: PaymentMethod; amount: number };
-type Sale = { id: string; receipt_number: string; total: number; subtotal: number; discount_amount: number; change_amount: number; status: "completed" | "cancelled"; created_at: string; credit_customer: string | null; credit_due_date: string | null; customer_id: string | null; customer_name: string | null; customer_whatsapp: string | null; courier_id: string | null; courier_name?: string; is_delivery?: boolean; delivery_address?: string | null; sale_items: SaleItem[]; sale_payments: SalePayment[] };
+type Sale = { id: string; receipt_number: string; total: number; subtotal: number; delivery_fee?: number; discount_amount: number; change_amount: number; status: "completed" | "cancelled"; created_at: string; credit_customer: string | null; credit_due_date: string | null; customer_id: string | null; customer_name: string | null; customer_whatsapp: string | null; courier_id: string | null; courier_name?: string; is_delivery?: boolean; delivery_address?: string | null; sale_items: SaleItem[]; sale_payments: SalePayment[] };
 type EditItem = { key: string; productId: string; quantity: number; extras: Extra[] };
 type EditPayment = { key: string; method: PaymentMethod; amount: number };
 const methods: PaymentMethod[] = ["Dinheiro", "Cartão de débito", "Cartão de crédito", "Pix", "Vale alimentação", "Crediário"];
@@ -37,7 +37,7 @@ export default function SalesManagement({ active, role }: { active: boolean; rol
   const loadSales = useCallback(async () => {
     setLoading(true);
     setError("");
-    let salesQuery = supabase.from("sales").select("id,receipt_number,total,subtotal,discount_amount,change_amount,status,created_at,credit_customer,credit_due_date,customer_id,customer_name,customer_whatsapp,courier_id,is_delivery,delivery_address,sale_items(id,product_id,product_name,quantity,unit_price,extras,line_total),sale_payments(id,method,amount)").order("created_at", { ascending: false }).limit(1000);
+    let salesQuery = supabase.from("sales").select("id,receipt_number,total,subtotal,delivery_fee,discount_amount,change_amount,status,created_at,credit_customer,credit_due_date,customer_id,customer_name,customer_whatsapp,courier_id,is_delivery,delivery_address,sale_items(id,product_id,product_name,quantity,unit_price,extras,line_total),sale_payments(id,method,amount)").order("created_at", { ascending: false }).limit(1000);
     if (role === "operator") {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (userError || !user) {
@@ -147,6 +147,7 @@ export default function SalesManagement({ active, role }: { active: boolean; rol
       for (const extra of item.extras ?? []) rows.push({ text: `  + ${extra.name} (${money(Number(extra.price))})`, size: 8 });
     }
     rows.push({ text: "--------------------------------", size: 8, align: "center" });
+    if (Number(sale.delivery_fee) > 0) rows.push({ text: `TAXA DE ENTREGA: ${money(Number(sale.delivery_fee))}`, size: 8 });
     for (const payment of sale.sale_payments) rows.push({ text: `PAGAMENTO: ${payment.method}  ${money(Number(payment.amount))}`, size: 8 });
     if (Number(sale.discount_amount) > 0) rows.push({ text: `DESCONTO: ${money(Number(sale.discount_amount))}`, size: 8 });
     if (Number(sale.change_amount) > 0) rows.push({ text: `TROCO: ${money(Number(sale.change_amount))}`, size: 8 });

@@ -32,6 +32,7 @@ export default function CouponStartDialog({ open, onCancel, onConfirm }: Props) 
   const [selectedCustomer, setSelectedCustomer] = useState<CouponCustomer | null>(null);
   const [couriers, setCouriers] = useState<DeliveryCourier[]>([]);
   const [deliveryZones, setDeliveryZones] = useState<DeliveryZone[]>([]);
+  const [deliveryZonesLoading, setDeliveryZonesLoading] = useState(false);
   const [selectedCourierId, setSelectedCourierId] = useState("");
   const [couriersLoading, setCouriersLoading] = useState(false);
   const [saving, setSaving] = useState(false);

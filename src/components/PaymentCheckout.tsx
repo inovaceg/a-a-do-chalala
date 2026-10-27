@@ -5,11 +5,12 @@ import "./form-uppercase.css";
 
 type Method = "Dinheiro" | "Cartão de débito" | "Cartão de crédito" | "Pix" | "Vale alimentação" | "Crediário";
 type Line = { method: Method; amount: number };
-type Props = { total: number; saving?: boolean; onCancel: () => void; onComplete: (payment: { discount: number; payments: Line[]; change: number; creditCustomer: string; creditDueDate: string }) => void };
+type Props = { total: number; deliveryFee?: number; saving?: boolean; onCancel: () => void; onComplete: (payment: { discount: number; payments: Line[]; change: number; creditCustomer: string; creditDueDate: string }) => void };
 const currency = (amount: number) => amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-export default function PaymentCheckout({ total, saving = false, onCancel, onComplete }: Props) {
-  const [lines, setLines] = useState<Line[]>([{ method: "Dinheiro", amount: total }]);
+export default function PaymentCheckout({ total, deliveryFee = 0, saving = false, onCancel, onComplete }: Props) {
+  const grossTotal = total + deliveryFee;
+  const [lines, setLines] = useState<Line[]>([{ method: "Dinheiro", amount: total + deliveryFee }]);
   const [discountType, setDiscountType] = useState<"value" | "percent">("value");
   const [discountValue, setDiscountValue] = useState("");
   const [password, setPassword] = useState("");
@@ -18,9 +19,9 @@ export default function PaymentCheckout({ total, saving = false, onCancel, onCom
   const [customer, setCustomer] = useState("");
   const [dueDate, setDueDate] = useState("");
   const dialogRef = useRef<HTMLElement>(null);
-  const proposedDiscount = discountType === "percent" ? total * Math.min(Number(discountValue) || 0, 100) / 100 : Number(discountValue) || 0;
-  const discount = approvedDiscount ? Math.min(total, proposedDiscount) : 0;
-  const due = Math.max(0, total - discount);
+  const proposedDiscount = discountType === "percent" ? grossTotal * Math.min(Number(discountValue) || 0, 100) / 100 : Number(discountValue) || 0;
+  const discount = approvedDiscount ? Math.min(grossTotal, proposedDiscount) : 0;
+  const due = Math.max(0, grossTotal - discount);
   const paid = useMemo(() => lines.reduce((sum, item) => sum + (Number(item.amount) || 0), 0), [lines]);
   const needsChange = lines.some(item => item.method === "Dinheiro") && paid > due;
   const change = needsChange ? Math.round((paid - due) * 100) / 100 : 0;
@@ -69,6 +70,7 @@ export default function PaymentCheckout({ total, saving = false, onCancel, onCom
   return <div className="modal-backdrop checkout-backdrop"><section ref={dialogRef} className="catalog-modal checkout-modal" role="dialog" aria-modal="true" aria-labelledby="checkout-title">
     <button className="modal-close" onClick={onCancel} aria-label="Fechar"><X size={18}/></button><div className="modal-kicker">FECHAMENTO DO PEDIDO</div><h2 id="checkout-title">Pagamento e troco</h2>
     <div className="checkout-total"><span>Total dos itens</span><b>{currency(total)}</b></div>
+    {deliveryFee > 0 && <div className="checkout-total"><span>Taxa de entrega</span><b>{currency(deliveryFee)}</b></div>}
     <section className="discount-section"><h3>Desconto protegido</h3><div className="discount-fields"><select aria-label="Tipo de desconto" value={discountType} onChange={e => { setDiscountType(e.target.value as "value" | "percent"); setApprovedDiscount(false); }}><option value="value">Valor (R$)</option><option value="percent">Percentual (%)</option></select><input aria-label="Valor do desconto" type="number" min="0" step="0.01" value={discountValue} onChange={e => { setDiscountValue(e.target.value); setApprovedDiscount(false); }} placeholder="Desconto"/><input aria-label="Senha da administradora" type="password" value={password} onChange={e => { setPassword(e.target.value); setApprovedDiscount(false); }} placeholder="Senha da administradora"/><button className="secondary-action" onClick={authorize} disabled={!Number(discountValue) || !password}>Autorizar</button></div>{approvedDiscount && <small className="discount-ok">Desconto autorizado: − {currency(discount)}</small>}</section>
     <div className="checkout-total final-total"><span>Total a pagar</span><b>{currency(due)}</b></div>
     <div className="payment-heading"><h3>Formas de pagamento</h3><button className="secondary-action" onClick={() => setLines(items => [...items, { method: "Pix", amount: 0 }])}><Plus size={14}/> Adicionar forma</button></div>
