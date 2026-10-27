@@ -8,7 +8,8 @@ import "./cash-closeout-layout.css";
 
 type Role = "admin" | "operator";
 type Register = { id: string; name: string; is_active: boolean; is_open: boolean };
-type Session = { id: string; register_id: string; opened_by: string; closed_by: string | null; status: "open" | "closed"; opening_amount: number; closing_amount: number | null; opened_at: string; closed_at: string | null; opening_note: string | null; shift_name: string; closing_note: string | null; expected_cash: number | null; cash_difference: number | null; non_cash_count: Record<string, number>; cash_registers?: { name: string } | null; profiles?: { display_name: string } | null; closers?: { display_name: string } | null };
+type Session = { id: string; register_id: string; opened_by: string; closed_by: string | null; status: "open" | "closed"; opening_amount: number; closing_amount: number | null; opened_at: string; closed_at: string | null; opening_note: string | null; shift_name: string; closing_note: string | null; expected_cash: number | null; cash_difference: number | null; non_cash_count: Record<string, number>; archived_at: string | null; archived_by: string | null; cash_registers?: { name: string } | null; profiles?: { display_name: string } | null; closers?: { display_name: string } | null };
+type ProfileOption = { id: string; display_name: string; role: Role };
 type Movement = { id: string; movement_type: string; amount: number; note: string | null; created_at: string; created_by: string };
 type Summary = { session: Session; payment_totals: Record<string, number>; cash_sales: number; supplies: number; withdrawals: number; refunds: number; expected_cash: number };
 type ReceiptPreview = { title: string; rows: string[]; filename: string; pdfUrl: string; closeoutData?: CloseoutReceiptData; openingData?: OpeningReceiptData };
@@ -19,6 +20,7 @@ const when = (value: string | null) => value ? new Date(value).toLocaleString("p
 export default function CashManagement({ active, role, onSessionChange }: { active: boolean; role: Role; onSessionChange: (session: { id: string; register_id: string } | null) => void }) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [registers, setRegisters] = useState<Register[]>([]);
+  const [operatorOptions, setOperatorOptions] = useState<ProfileOption[]>([]);
   const [selectedId, setSelectedId] = useState("");
   const [summary, setSummary] = useState<Summary | null>(null);
   const [movements, setMovements] = useState<Movement[]>([]);
@@ -43,6 +45,8 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
   const [toDate, setToDate] = useState("");
   const [operatorFilter, setOperatorFilter] = useState("");
   const [registerFilter, setRegisterFilter] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const [editSession, setEditSession] = useState<Session | null>(null);
   const movementRequestKey = useRef<{ signature: string; key: string } | null>(null);
   const onSessionChangeRef = useRef(onSessionChange);
   useEffect(() => { onSessionChangeRef.current = onSessionChange; }, [onSessionChange]);
@@ -58,7 +62,7 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
     const [{ data: authData }, { data: registerData, error: registerError }, { data: sessionData, error: sessionError }] = await Promise.all([
       supabase.auth.getUser(),
       supabase.rpc("list_cash_registers"),
-      supabase.from("cash_sessions").select("id,register_id,opened_by,closed_by,status,opening_amount,closing_amount,opened_at,closed_at,opening_note,shift_name,closing_note,expected_cash,cash_difference,non_cash_count,cash_registers(name),profiles!cash_sessions_opened_by_fkey(display_name)").order("opened_at", { ascending: false }).limit(300),
+      supabase.from("cash_sessions").select("id,register_id,opened_by,closed_by,status,opening_amount,closing_amount,opened_at,closed_at,opening_note,shift_name,closing_note,expected_cash,cash_difference,non_cash_count,archived_at,archived_by,cash_registers(name),profiles!cash_sessions_opened_by_fkey(display_name)").order("opened_at", { ascending: false }).limit(300),
     ]);
     const currentUser = authData.user?.id ?? "";
     const loadedSessions = (sessionData ?? []) as unknown as Session[];
