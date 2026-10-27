@@ -34,6 +34,13 @@ serve(async (req) => {
     }
     return json({ created: true }, 201);
   }
+  if (body.action === "set-name") {
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if (typeof body.userId !== "string" || !name || name.length > 120) return json({ error: "Informe um nome válido com até 120 caracteres." }, 400);
+    const { error } = await adminClient.from("profiles").update({ display_name: name }).eq("id", body.userId);
+    if (error) return json({ error: "Não foi possível atualizar o nome." }, 400);
+    return json({ updated: true });
+  }
   if (typeof body.userId !== "string" || body.userId === authData.user.id) return json({ error: "Não é possível alterar a própria conta." }, 400);
   if (body.action === "set-role" && (body.role === "admin" || body.role === "operator")) {
     const { error } = await adminClient.from("profiles").update({ role: body.role }).eq("id", body.userId);
