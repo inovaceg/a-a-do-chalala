@@ -17,6 +17,7 @@ import { Activity, ArrowUpRight, Banknote, Bell, Boxes, CalendarDays, Check, Che
 import "./pos-keyboard.css";
 import "./product-edit.css";
 import "./product-images.css";
+import "./pos-product-images.css";
 import "./combo-editor.css";
 import "./coupon-receipt.css";
 
