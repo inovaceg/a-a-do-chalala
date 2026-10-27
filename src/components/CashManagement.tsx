@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Banknote, ClipboardCheck, Clock3, DoorOpen, History, MinusCircle, PlusCircle, Printer, RefreshCw, Wallet } from "lucide-react";
+import { Banknote, ClipboardCheck, DoorOpen, History, PlusCircle, Printer, RefreshCw } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { supabase } from "@/integrations/supabase/client";
 import "./cash-management.css";
@@ -16,7 +16,6 @@ const when = (value: string | null) => value ? new Date(value).toLocaleString("p
 export default function CashManagement({ active, role, onSessionChange }: { active: boolean; role: Role; onSessionChange: (session: { id: string; register_id: string } | null) => void }) {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [registers, setRegisters] = useState<Register[]>([]);
-  const [userId, setUserId] = useState("");
   const [selectedId, setSelectedId] = useState("");
   const [summary, setSummary] = useState<Summary | null>(null);
   const [movements, setMovements] = useState<Movement[]>([]);
@@ -52,7 +51,6 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
     ]);
     if (registerError || sessionError) setError("Não foi possível carregar as sessões e caixas.");
     const currentUser = authData.user?.id ?? "";
-    setUserId(currentUser);
     const loadedSessions = (sessionData ?? []) as unknown as Session[];
     setSessions(loadedSessions);
     setRegisters((registerData ?? []) as Register[]);
@@ -78,15 +76,17 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
     const details = summaryData as Summary;
     setSummary(details);
     setMovements((movementData ?? []) as Movement[]);
-    setCountedCash(String(details.expected_cash ?? 0));
-    setNonCashCount(Object.fromEntries(methods.map(method => [method, String(details.payment_totals?.[method] ?? 0)])));
-    setClosingNote("");
+    if (details.session.status === "open") {
+      setCountedCash(String(details.expected_cash ?? 0));
+      setNonCashCount(Object.fromEntries(methods.map(method => [method, String(details.payment_totals?.[method] ?? 0)])));
+      setClosingNote("");
+    }
   }, []);
 
   useEffect(() => {
-    if (active && selectedSession?.status === "open") void loadDetails(selectedSession.id);
+    if (active && selectedSession) void loadDetails(selectedSession.id);
     else { setSummary(null); setMovements([]); }
-  }, [active, selectedSession?.id, selectedSession?.status, loadDetails]);
+  }, [active, selectedSession?.id, loadDetails]);
 
   const openSession = async (event: React.FormEvent) => {
     event.preventDefault();

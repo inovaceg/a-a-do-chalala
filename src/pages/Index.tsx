@@ -3,6 +3,7 @@ import PaymentCheckout from "@/components/PaymentCheckout";
 import CouponStartDialog, { type CouponCustomer, type CouponSelection, type DeliveryCourier } from "@/components/CouponStartDialog";
 import DashboardDataSync from "@/components/DashboardDataSync";
 import DashboardDeliveries from "@/components/DashboardDeliveries";
+import CashManagement from "@/components/CashManagement";
 import TeamManagement from "@/components/TeamManagement";
 import SalesManagement from "@/components/SalesManagement";
 import CustomerManagement from "@/components/CustomerManagement";
@@ -32,13 +33,13 @@ const initialProducts: Product[] = [
   { name: "Açaí na Tigela", category: "Açaí • 400ml", price: 16, color: "berry", emoji: "🥣", extras: [{ name: "Morango", price: 3 }, { name: "Nutella", price: 4 }, { name: "Leite Ninho", price: 3 }] },
   { name: "Suco Natural", category: "Bebidas • 300ml", price: 9, color: "green", emoji: "🥤", extras: [] },
 ];
-const navItems = [{ label: "Visão geral", icon: LayoutDashboard }, { label: "PDV", icon: ShoppingCart }, { label: "Vendas", icon: Banknote }, { label: "Produtos & estoque", icon: Boxes }, { label: "Clientes", icon: Users }, { label: "Financeiro", icon: Wallet }, { label: "Cadastros", icon: UserCog }];
+const navItems = [{ label: "Visão geral", icon: LayoutDashboard }, { label: "PDV", icon: ShoppingCart }, { label: "Vendas", icon: Banknote }, { label: "Caixa", icon: Wallet }, { label: "Produtos & estoque", icon: Boxes }, { label: "Clientes", icon: Users }, { label: "Financeiro", icon: Wallet }, { label: "Cadastros", icon: UserCog }];
 const money = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const loadProducts = (): Product[] => { try { const stored = localStorage.getItem("chalala-products"); return stored ? JSON.parse(stored) as Product[] : initialProducts; } catch { return initialProducts; } };
 
 export default function Index({ role, displayName, email }: { role: "admin" | "operator"; displayName: string; email: string }) {
   const [active, setActive] = useState(role === "admin" ? "Visão geral" : "PDV");
-  const visibleNavItems = role === "admin" ? navItems : navItems.filter(item => item.label === "PDV" || item.label === "Vendas" || item.label === "Clientes");
+  const visibleNavItems = role === "admin" ? navItems : navItems.filter(item => item.label === "PDV" || item.label === "Vendas" || item.label === "Caixa" || item.label === "Clientes");
   const normalizedDisplayName = displayName.trim();
   const initials = normalizedDisplayName.split(" ").map(part => part[0]).slice(0,2).join("").toUpperCase();
   const [products, setProducts] = useState<Product[]>(loadProducts);
@@ -80,9 +81,8 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     if (role !== "admin") catalogQuery.eq("is_active", true);
     Promise.all([
       catalogQuery,
-      supabase.rpc("open_cash_session"),
       supabase.from("extras").select("id,name,price,cost_price,is_active").eq("is_active", true).order("name"),
-    ]).then(([catalog, session, availableExtras]) => {
+    ]).then(async ([catalog, availableExtras]) => {
       if (!mounted) return;
       if (catalog.data) {
         const savedProducts = catalog.data.map(product => ({ ...product, price: Number(product.price), cost_price: Number(product.cost_price) })) as Product[];
@@ -90,9 +90,11 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
         setProducts(savedProducts.length ? savedProducts : initialProducts);
       }
       setExtras((availableExtras.data ?? []).map(extra => ({ ...extra, price: Number(extra.price), cost_price: Number(extra.cost_price) })) as Extra[]);
-      if (session.data) setCashSession(session.data as { id: string; register_id: string });
-      if (session.error) setNotice("Não foi possível abrir um caixa. Verifique se há um caixa disponível.");
       if (availableExtras.error) setNotice("Não foi possível carregar os complementos cadastrados.");
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data: session } = await supabase.from("cash_sessions").select("id,register_id").eq("opened_by", user.id).eq("status", "open").order("opened_at", { ascending: false }).limit(1).maybeSingle();
+      if (mounted) setCashSession(session ? { id: session.id, register_id: session.register_id } : null);
     });
     return () => { mounted = false; };
   }, []);
@@ -564,6 +566,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     <ExtraManagement active={active === "Produtos & estoque" && role === "admin"} extras={extras} onSaved={saved => setExtras(current => [...current.filter(extra => extra.id !== saved.id), saved].sort((a, b) => a.name.localeCompare(b.name)))} />
     <DashboardDataSync active={active === "Visão geral"} productCount={catalogProducts.filter(product => product.is_active !== false).length} extraCount={extras.length} />
     <DashboardDeliveries active={active === "Visão geral"} />
+    <CashManagement active={active === "Caixa"} role={role} onSessionChange={session => setCashSession(session)} />
   </div>;
 }
 function ActiveIcon({ active }: { active: string }) { const Icon = active === "Clientes" ? Users : active === "Financeiro" ? Wallet : active === "Vendas" ? Banknote : Boxes; return <Icon size={27}/>; }
