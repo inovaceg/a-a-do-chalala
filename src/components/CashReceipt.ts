@@ -104,7 +104,7 @@ export function printCashOpenReceipt(data: OpeningReceiptData, filename: string)
   pair("Data e horário", data.openedAt);
   divider();
   section("SALDO INICIAL EM DINHEIRO");
-  const initialBalance = Number(data.openingAmount || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const initialBalance = Number(data.openingAmount || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 2, maximumFractionDigits: 2 });
   let balanceFont = width === 58 ? 13 : 15;
   setFont(balanceFont, true, "courier");
   while (doc.getTextWidth(initialBalance) > contentWidth && balanceFont > 10) {
@@ -155,7 +155,7 @@ type ReceiptBlock =
   | { kind: "pair"; label: string; value: string; prominent?: boolean }
   | { kind: "rule" };
 
-const receiptMoney = (value: number) => Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const receiptMoney = (value: number) => Number(value || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function printCashCloseoutReceipt(data: CloseoutReceiptData, filename: string) {
   const electronicMethods = ["Pix", "Cartão de débito", "Cartão de crédito", "Vale alimentação"];
@@ -277,18 +277,17 @@ export function printCashCloseoutReceipt(data: CloseoutReceiptData, filename: st
     }
     setText(size, bold, "courier");
     const valueWidth = doc.getTextWidth(value);
-    const valueLines = doc.splitTextToSize(value, contentWidth) as string[];
-    const labelWidth = Math.max(14, contentWidth - Math.min(valueWidth, contentWidth * 0.6) - gap);
+    const valueColumnWidth = contentWidth * 0.48;
+    const labelWidth = Math.max(14, contentWidth - valueColumnWidth - gap);
     const labelHeight = drawWrapped(block.label, margin, y, labelWidth, size, bold);
-    const valueHeight = valueLines.length > 1 || valueWidth > contentWidth * 0.6
-      ? 0
-      : drawWrapped(value, margin + labelWidth + gap, y, contentWidth - labelWidth - gap, size, bold, "right", "courier");
 
-    if (valueLines.length > 1 || valueWidth > contentWidth * 0.6) {
+    if (valueWidth > valueColumnWidth) {
       y += Math.max(labelHeight, bodyLeading) + 0.2;
       y += drawWrapped(value, margin, y, contentWidth, size, bold, "right", "courier");
     } else {
-      y += Math.max(labelHeight, valueHeight, bodyLeading);
+      setText(size, bold, "courier");
+      doc.text(value, margin + contentWidth, y, { align: "right" });
+      y += Math.max(labelHeight, bodyLeading);
     }
     y += block.prominent ? 0.8 : 0.25;
   });
