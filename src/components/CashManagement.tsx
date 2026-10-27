@@ -37,6 +37,7 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
   const [toDate, setToDate] = useState("");
   const [operatorFilter, setOperatorFilter] = useState("");
   const [registerFilter, setRegisterFilter] = useState("");
+  const movementRequestKey = useRef<{ signature: string; key: string } | null>(null);
   const onSessionChangeRef = useRef(onSessionChange);
   useEffect(() => { onSessionChangeRef.current = onSessionChange; }, [onSessionChange]);
 
@@ -105,9 +106,12 @@ export default function CashManagement({ active, role, onSessionChange }: { acti
     event.preventDefault();
     if (!selectedSession) return;
     setSaving(true); setError(""); setSuccess("");
-    const { error: requestError } = await supabase.rpc("record_cash_movement", { p_session_id: selectedSession.id, p_movement_type: movementType, p_amount: Number(movementAmount), p_note: movementNote.trim(), p_idempotency_key: crypto.randomUUID() });
+    const movementSignature = `${selectedSession.id}|${movementType}|${movementAmount}|${movementNote.trim()}`;
+    if (movementRequestKey.current?.signature !== movementSignature) movementRequestKey.current = { signature: movementSignature, key: crypto.randomUUID() };
+    const { error: requestError } = await supabase.rpc("record_cash_movement", { p_session_id: selectedSession.id, p_movement_type: movementType, p_amount: Number(movementAmount), p_note: movementNote.trim(), p_idempotency_key: movementRequestKey.current.key });
     setSaving(false);
     if (requestError) { setError(requestError.message || "Não foi possível registrar a movimentação."); return; }
+    movementRequestKey.current = null;
     setMovementAmount(""); setMovementNote(""); setSuccess(movementType === "supply" ? "Suprimento registrado." : "Sangria registrada.");
     await loadDetails(selectedSession.id); await load(selectedSession.id);
   };
