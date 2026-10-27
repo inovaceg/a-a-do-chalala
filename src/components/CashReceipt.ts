@@ -227,7 +227,7 @@ export function printCashCloseoutReceipt(data: CloseoutReceiptData, filename: st
   const bodySize = width === 58 ? 7.2 : 8;
   const bodyLeading = bodySize * 0.42;
   const gap = width === 58 ? 1.4 : 1.8;
-  const doc = new jsPDF({ unit: "mm", format: [width, 1000], compress: true });
+  const doc = new jsPDF({ unit: "mm", format: [width, 400], compress: true });
   let y = margin + 1;
 
   const setText = (size: number, bold: boolean, font: "helvetica" | "courier" = "helvetica") => {
