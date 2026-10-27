@@ -25,6 +25,7 @@ type Tab = {
     customer_name: string | null;
     status: TabStatus;
     opened_by: string;
+    opened_by_name?: string | null;
     terminal: string | null;
     opened_at: string;
     closed_at: string | null;
@@ -164,21 +165,19 @@ export default function Comandas(
             return;
         }
 
-        const [membership, productData, customerData, sessions, tabsData] = await Promise.all([
+        const [membership, productData, customerData, sessions] = await Promise.all([
             supabase.from("store_memberships").select("store_id,stores(name)").eq("user_id", user.id).limit(1).maybeSingle(),
             supabase.from("products").select("id,name,price,extras,is_active").eq("is_active", true).order("name"),
             supabase.from("customers").select("id,name").order("name"),
             supabase.from("cash_sessions").select("id,opened_by").eq("status", "open").order("opened_at", {
                 ascending: false
-            }),
-            supabase.from("tabs").select(
-                "id,store_id,tab_number,customer_id,customer_name,status,opened_by,terminal,opened_at,closed_at"
-            ).order("opened_at", {
-                ascending: false
-            }).limit(500)
+            })
         ]);
 
         const currentStore = membership.data?.store_id ?? "";
+        const { data: tabsData, error: tabsError } = currentStore ? await supabase.rpc("list_store_tabs_with_operator", {
+            p_store_id: currentStore
+        }) : { data: [], error: null };
 
         const {
             data: profiles,
@@ -190,7 +189,7 @@ export default function Comandas(
             error: null
         };
 
-        if (membership.error || tabsData.error || productData.error || sessions.error || profilesError) setError(
+        if (membership.error || tabsError || productData.error || sessions.error || profilesError) setError(
             "Não foi possível carregar as comandas. Atualize a tela e tente novamente."
         );
 
@@ -756,10 +755,7 @@ export default function Comandas(
                         placeholder="Buscar número ou nome do cliente" /></label><select value={filter} onChange={event => setFilter(event.target.value)}><option value="all">Todas</option><option value="active">Abertas e pendentes</option>{Object.entries(labels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><button
                     title={sortNewest ? "Mais antigas primeiro" : "Mais recentes primeiro"}
                     onClick={() => setSortNewest(value => !value)}>{sortNewest ? <ArrowDownWideNarrow size={17} /> : <ArrowUpNarrowWide size={17} />}</button><button title="Atualizar comandas" onClick={() => void load()}><RefreshCw size={16} /></button></div>
-            {loading ? <div className="comandas-empty">Fechada
-                #2
-                FELIPE CAL
-                27/10/2026, 18:14 · Equipe</div> : filteredTabs.length ? <div className="comandas-grid">{filteredTabs.map(tab => <button
+            {loading ? <div className="comandas-empty">Carregando comandas…</div> : filteredTabs.length ? <div className="comandas-grid">{filteredTabs.map(tab => <button
                     key={tab.id}
                     className={`comanda-card ${selected?.id === tab.id ? "selected" : ""}`}
                     onClick={() => void loadDetail(tab)}><span className={`comanda-status status-${tab.status}`}>{labels[tab.status]}</span><b className="comanda-number">#{tab.tab_number}</b><span className="comanda-customer">{tab.customer_name || "Sem identificação"}</span><small>{new Date(tab.opened_at).toLocaleString("pt-BR", {
