@@ -799,7 +799,8 @@ export default function Comandas(
             "",
             "_Comprovante não fiscal._"
         ].join("\n");
-        window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+        const encodedMessage = encodeURIComponent(text.normalize("NFC"));
+        window.open(`https://wa.me/${phone}?text=${encodedMessage}`, "_blank", "noopener,noreferrer");
     };
 
     return (
