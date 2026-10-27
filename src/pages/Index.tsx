@@ -18,6 +18,7 @@ import "./pos-keyboard.css";
 import "./product-edit.css";
 import "./product-images.css";
 import "./pos-product-images.css";
+import "./product-image-preview.css";
 import "./combo-editor.css";
 import "./coupon-receipt.css";
 
@@ -72,6 +73,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   const [dialog, setDialog] = useState<"product" | "extra" | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [customize, setCustomize] = useState<Product | null>(null);
+  const [enlargedProduct, setEnlargedProduct] = useState<Product | null>(null);
   const [closedSale, setClosedSale] = useState<{ items: CartItem[]; total: number; id: string; discount: number; payments: PaymentLine[]; change: number; creditCustomer: string; creditDueDate: string; customer: CouponCustomer | null; delivery: boolean; deliveryAddress: string; deliveryFee: number; courier: DeliveryCourier | null } | null>(null);
   const [currentSaleCustomer, setCurrentSaleCustomer] = useState<CouponCustomer | null>(null);
   const [currentSaleCourier, setCurrentSaleCourier] = useState<DeliveryCourier | null>(null);
@@ -586,6 +588,47 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
       if (filtered[index] && art) syncProductImage(art, filtered[index]);
     });
   }, [active, products, query]);
+  useEffect(() => {
+    if (active !== "PDV") return;
+    const openPreview = (event: MouseEvent) => {
+      const image = (event.target as HTMLElement).closest<HTMLImageElement>(".product-card .product-art img.product-photo");
+      if (!image) return;
+      const card = image.closest<HTMLElement>(".product-card");
+      const index = card ? Array.from(document.querySelectorAll(".product-card")).indexOf(card) : -1;
+      if (index >= 0 && filtered[index]?.image_path) setEnlargedProduct(filtered[index]);
+    };
+    document.addEventListener("click", openPreview);
+    return () => document.removeEventListener("click", openPreview);
+  }, [active, filtered]);
+  useEffect(() => {
+    if (!enlargedProduct) return;
+    const backdrop = document.createElement("div");
+    backdrop.className = "product-image-preview-backdrop";
+    backdrop.setAttribute("role", "presentation");
+    const dialog = document.createElement("section");
+    dialog.className = "product-image-preview";
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-modal", "true");
+    dialog.setAttribute("aria-label", `Foto ampliada: ${enlargedProduct.name}`);
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "product-image-preview-close";
+    close.textContent = "×";
+    close.setAttribute("aria-label", "Fechar foto ampliada");
+    const image = document.createElement("img");
+    image.src = productImageUrl(enlargedProduct.image_path);
+    image.alt = enlargedProduct.name;
+    const title = document.createElement("b");
+    title.textContent = enlargedProduct.name;
+    close.addEventListener("click", () => setEnlargedProduct(null));
+    backdrop.addEventListener("click", event => { if (event.target === backdrop) setEnlargedProduct(null); });
+    dialog.append(close, image, title);
+    backdrop.append(dialog);
+    document.body.append(backdrop);
+    const handleEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setEnlargedProduct(null); };
+    document.addEventListener("keydown", handleEscape);
+    return () => { document.removeEventListener("keydown", handleEscape); backdrop.remove(); };
+  }, [enlargedProduct]);
   useEffect(() => {
     if (role !== "admin" || active !== "Produtos & estoque") return;
     const rows = Array.from(document.querySelectorAll<HTMLElement>(".catalog-list-row"));
