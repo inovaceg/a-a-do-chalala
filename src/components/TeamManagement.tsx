@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Bike, ClipboardList, MapPin, Plus, RefreshCw, ShieldCheck, UserRound, Users } from "lucide-react";
+import { Bike, ClipboardList, MapPin, Monitor, Plus, RefreshCw, ShieldCheck, UserRound, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import CashRegisterManagement from "@/components/CashRegisterManagement";
 import { useSessionContext } from "@/components/SessionContextProvider";
 import CourierManagement from "@/components/CourierManagement";
 import DeliveryZoneManagement from "@/components/DeliveryZoneManagement";
@@ -60,6 +61,6 @@ function TeamUsersManagement() {
 }
 
 export default function TeamManagement() {
-  const [tab, setTab] = useState<"team" | "couriers" | "delivery" | "logs">("team");
-  return <div className="registrations-management"><div className="registrations-tabs" role="tablist" aria-label="Cadastros"><button className={tab === "team" ? "active" : ""} role="tab" aria-selected={tab === "team"} onClick={() => setTab("team")}><Users size={16}/> Equipe e usuários</button><button className={tab === "couriers" ? "active" : ""} role="tab" aria-selected={tab === "couriers"} onClick={() => setTab("couriers")}><Bike size={16}/> Motoboys</button><button className={tab === "delivery" ? "active" : ""} role="tab" aria-selected={tab === "delivery"} onClick={() => setTab("delivery")}><MapPin size={16}/> Taxas de entrega</button><button className={tab === "logs" ? "active" : ""} role="tab" aria-selected={tab === "logs"} onClick={() => setTab("logs")}><ClipboardList size={16}/> Logs</button></div>{tab === "team" ? <TeamUsersManagement/> : tab === "couriers" ? <CourierManagement/> : tab === "delivery" ? <DeliveryZoneManagement/> : <SalesDeletionLogs/>}</div>;
+  const [tab, setTab] = useState<"team" | "couriers" | "delivery" | "registers" | "logs">("team");
+  return <div className="registrations-management"><div className="registrations-tabs" role="tablist" aria-label="Cadastros"><button className={tab === "team" ? "active" : ""} role="tab" aria-selected={tab === "team"} onClick={() => setTab("team")}><Users size={16}/> Equipe e usuários</button><button className={tab === "couriers" ? "active" : ""} role="tab" aria-selected={tab === "couriers"} onClick={() => setTab("couriers")}><Bike size={16}/> Motoboys</button><button className={tab === "delivery" ? "active" : ""} role="tab" aria-selected={tab === "delivery"} onClick={() => setTab("delivery")}><MapPin size={16}/> Taxas de entrega</button><button className={tab === "registers" ? "active" : ""} role="tab" aria-selected={tab === "registers"} onClick={() => setTab("registers")}><Monitor size={16}/> PDVs / caixas</button><button className={tab === "logs" ? "active" : ""} role="tab" aria-selected={tab === "logs"} onClick={() => setTab("logs")}><ClipboardList size={16}/> Logs</button></div>{tab === "team" ? <TeamUsersManagement/> : tab === "couriers" ? <CourierManagement/> : tab === "delivery" ? <DeliveryZoneManagement/> : tab === "registers" ? <CashRegisterManagement/> : <SalesDeletionLogs/>}</div>;
 }
