@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowDownWideNarrow, ArrowUpNarrowWide, ClipboardList, Plus, RefreshCw, Search, X } from "lucide-react";
+import { jsPDF } from "jspdf";
 import { supabase } from "@/integrations/supabase/client";
 import "./comandas.css";
 import "./comandas-items.css";
@@ -158,6 +159,34 @@ export default function Comandas({ active, role }: { active: boolean; role: "adm
     setOrderKey(null); setProductId(""); setQuantity("1"); setExtraIds([]); setNote(""); await load(); const nextStatus = selected.status === "partially_paid" ? "partially_paid" : "in_consumption"; await loadDetail({ ...selected, status: nextStatus });
   };
 
+  const downloadTabReceipt = (tab: Tab, receiptItems: Item[], receiptPayments: Payment[], receivedAmount: number, change: number) => {
+    const activeItems = receiptItems.filter(item => item.status === "active");
+    const total = activeItems.reduce((sum, item) => sum + totalOf(item), 0);
+    const lines = 13 + activeItems.reduce((sum, item) => sum + 2 + item.extras.length, 0) + receiptPayments.length * 2;
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: [80, Math.max(150, lines * 5)] });
+    let y = 12;
+    doc.setFont("helvetica", "bold"); doc.setFontSize(14); doc.text(storeName, 40, y, { align: "center" });
+    y += 8; doc.setFontSize(11); doc.text(`COMANDA #${tab.tab_number}`, 5, y);
+    y += 6; doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+    doc.text(`Cliente: ${tab.customer_name || "Não identificado"}`, 5, y); y += 5;
+    doc.text(`Data: ${new Date().toLocaleString("pt-BR")}`, 5, y); y += 5;
+    doc.text("----------------------------------------", 5, y); y += 5;
+    activeItems.forEach(item => {
+      const row = `${item.quantity}x ${item.product_name}`;
+      doc.text(row.slice(0, 42), 5, y); doc.text(money(totalOf(item)), 75, y, { align: "right" }); y += 5;
+      item.extras.forEach(extra => { doc.text(`+ ${extra.name}`.slice(0, 42), 8, y); y += 4; });
+    });
+    doc.text("----------------------------------------", 5, y); y += 6;
+    doc.setFont("helvetica", "bold"); doc.text("TOTAL", 5, y); doc.text(money(total), 75, y, { align: "right" }); y += 7;
+    doc.setFont("helvetica", "normal"); doc.text("PAGAMENTOS", 5, y); y += 5;
+    [...receiptPayments, { id: "current", method: paymentMethod, amount: receivedAmount, change_amount: change, received_at: new Date().toISOString(), cash_session_id: cashSessionId }].forEach(payment => {
+      doc.text(`${payment.method}: ${money(payment.amount)}`.slice(0, 40), 5, y); y += 5;
+    });
+    if (change > 0) { doc.text(`Troco: ${money(change)}`, 5, y); y += 5; }
+    doc.setFont("helvetica", "bold"); doc.text("Comprovante não fiscal", 40, y + 3, { align: "center" });
+    doc.save(`comanda-${tab.tab_number}-recibo.pdf`);
+  };
+
   const receivePayment = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selected || !cashSessionId) { setError("É necessário estar com um caixa aberto para receber pagamento."); return; }
@@ -171,6 +200,7 @@ export default function Comandas({ active, role }: { active: boolean; role: "adm
     const { error: requestError } = await supabase.rpc("record_tab_payment", { p_tab_id: selected.id, p_cash_session_id: cashSessionId, p_method: paymentMethod, p_amount: amount, p_change_amount: change, p_idempotency_key: idempotencyKey });
     setSaving(false);
     if (requestError) { setError("Pagamento não registrado. Verifique se o caixa continua aberto."); return; }
+    if (amount >= due) downloadTabReceipt(selected, items, payments, amount, change);
     setPaymentKey(null); setPaymentAmount(""); setPaymentChange("0"); await load(); const nextStatus = amount >= due ? "closed" : "partially_paid"; const nextTab = { ...selected, status: nextStatus as TabStatus, closed_at: nextStatus === "closed" ? new Date().toISOString() : selected.closed_at }; setSelected(nextTab); await loadDetail(nextTab);
   };
 
