@@ -210,9 +210,13 @@ export default function Comandas(
         const currentTabs = (tabsData.data ?? []).filter(tab => tab.store_id === currentStore) as Tab[];
         setTabs(currentTabs);
 
-        setOperatorNames(
-            new Map((profiles.data ?? []).map(profile => [profile.id, profile.display_name]))
+        const namesById = new Map<string, string>(
+            (profiles.data ?? []).map(profile => [profile.id, profile.display_name])
         );
+        currentTabs.forEach(tab => {
+            if (tab.opened_by_name) namesById.set(tab.opened_by, tab.opened_by_name);
+        });
+        setOperatorNames(namesById);
 
         if (currentTabs.length) {
             const {
@@ -429,7 +433,7 @@ export default function Comandas(
     ) => {
         const activeItems = receiptItems.filter(item => item.status === "active");
         const total = activeItems.reduce((sum, item) => sum + totalOf(item), 0);
-        const lines = 13 + activeItems.reduce((sum, item) => sum + 2 + item.extras.length, 0) + receiptPayments.length * 2;
+        const lines = 14 + activeItems.reduce((sum, item) => sum + 2 + item.extras.length, 0) + receiptPayments.length * 2;
 
         const doc = new jsPDF({
             orientation: "portrait",
@@ -454,6 +458,8 @@ export default function Comandas(
         doc.text(`Cliente: ${tab.customer_name || "Não identificado"}`, 5, y);
         y += 5;
         doc.text(`Data: ${new Date().toLocaleString("pt-BR")}`, 5, y);
+        y += 5;
+        doc.text(`Operador: ${operatorNames.get(tab.opened_by) ?? ""}`.slice(0, 42), 5, y);
         y += 5;
         doc.text("----------------------------------------", 5, y);
         y += 5;
