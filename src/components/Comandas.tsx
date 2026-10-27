@@ -175,9 +175,10 @@ export default function Comandas(
         ]);
 
         const currentStore = membership.data?.store_id ?? "";
-        const { data: tabsData, error: tabsError } = currentStore ? await supabase.rpc("list_store_tabs_with_operator", {
-            p_store_id: currentStore
-        }) : { data: [], error: null };
+        const tabsData = currentStore ? await supabase.from("tabs").select(
+            "id,store_id,tab_number,customer_id,customer_name,status,opened_by,terminal,opened_at,closed_at"
+        ).eq("store_id", currentStore).order("opened_at", { ascending: false }).limit(500) : { data: [], error: null };
+        const tabsError = tabsData.error;
 
         const {
             data: profiles,
