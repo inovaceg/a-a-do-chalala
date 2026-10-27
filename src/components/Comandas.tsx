@@ -579,6 +579,24 @@ export default function Comandas(
         await loadDetail(nextTab);
     };
 
+    const closeEmptyTab = async () => {
+        if (!selected || !activeStatuses.includes(selected.status) || orders.length || items.length || payments.length || saving)
+            return;
+        if (!window.confirm(`Fechar a comanda #${selected.tab_number} sem consumo?`)) return;
+        setSaving(true);
+        setError("");
+        const { data, error: requestError } = await supabase.rpc("close_empty_tab", { p_tab_id: selected.id });
+        setSaving(false);
+        if (requestError) {
+            setError("Não foi possível fechar a comanda. Ela pode ter recebido consumo ou pagamento.");
+            return;
+        }
+        const closedTab = { ...selected, ...(data as Tab) };
+        setSelected(closedTab);
+        await load();
+        setNotice(`Comanda #${closedTab.tab_number} fechada sem consumo.`);
+    };
+
     const reopenTab = async () => {
         if (!selected || role !== "admin" || selected.status !== "closed" || saving)
             return;
@@ -748,7 +766,10 @@ export default function Comandas(
                             dateStyle: "short",
                             timeStyle: "short"
                         })}· {operatorNames.get(tab.opened_by) ?? "Equipe"}</small></button>)}</div> : <div className="comandas-empty"><ClipboardList size={30} /><b>Nenhuma comanda nesta visualização</b><span>Abra uma comanda para começar a registrar o consumo.</span></div>}
-            {selected && <section className="comanda-detail"><header><div><span className="comandas-kicker">DETALHES</span><h3>Comanda #{selected.tab_number} <small>{selected.customer_name || "Sem identificação"}</small></h3></div><div className="comanda-detail-actions">{role === "admin" && selected.status === "closed" && <button
+            {selected && <section className="comanda-detail"><header><div><span className="comandas-kicker">DETALHES</span><h3>Comanda #{selected.tab_number} <small>{selected.customer_name || "Sem identificação"}</small></h3></div><div className="comanda-detail-actions">{activeStatuses.includes(selected.status) && orders.length === 0 && items.length === 0 && payments.length === 0 && <button
+                            className="comandas-primary"
+                            onClick={() => void closeEmptyTab()}
+                            disabled={saving}>Fechar sem consumo</button>}{role === "admin" && selected.status === "closed" && <button
                             className="comandas-primary"
                             onClick={() => void reopenTab()}
                             disabled={saving}><RefreshCw size={15} />{saving ? "Reabrindo…" : "Reabrir para ajustes"}</button>}<button
