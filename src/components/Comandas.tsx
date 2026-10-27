@@ -59,16 +59,16 @@ export default function Comandas({ active, role }: { active: boolean; role: "adm
     const { data: auth } = await supabase.auth.getUser();
     const user = auth.user;
     if (!user) { setError("Sessão não encontrada."); setLoading(false); return; }
-    const [membership, productData, customerData, sessions, tabsData, profiles] = await Promise.all([
+    const [membership, productData, customerData, sessions, tabsData] = await Promise.all([
       supabase.from("store_memberships").select("store_id,stores(name)").eq("user_id", user.id).limit(1).maybeSingle(),
       supabase.from("products").select("id,name,price,extras,is_active").eq("is_active", true).order("name"),
       supabase.from("customers").select("id,name").order("name"),
       supabase.from("cash_sessions").select("id,opened_by").eq("status", "open").order("opened_at", { ascending: false }),
       supabase.from("tabs").select("id,store_id,tab_number,customer_id,customer_name,status,opened_by,terminal,opened_at,closed_at").order("opened_at", { ascending: false }).limit(500),
-      supabase.from("profiles").select("id,display_name").eq("is_active", true),
     ]);
-    if (membership.error || tabsData.error || productData.error || sessions.error) setError("Não foi possível carregar as comandas. Atualize a tela e tente novamente.");
     const currentStore = membership.data?.store_id ?? "";
+    const { data: profiles, error: profilesError } = currentStore ? await supabase.rpc("list_store_profile_names", { p_store_id: currentStore }) : { data: [], error: null };
+    if (membership.error || tabsData.error || productData.error || sessions.error || profilesError) setError("Não foi possível carregar as comandas. Atualize a tela e tente novamente.");
     setStoreId(currentStore);
     setStoreName((membership.data?.stores as unknown as { name: string } | null)?.name ?? "Loja");
     setProducts((productData.data ?? []) as Product[]);
