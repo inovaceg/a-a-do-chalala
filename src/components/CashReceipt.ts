@@ -37,7 +37,7 @@ export function printCashOpenReceipt(data: OpeningReceiptData, filename: string)
   const contentWidth = width - margin * 2;
   const fontSize = width === 58 ? 7.5 : 8.2;
   const gap = width === 58 ? 1.5 : 2;
-  const doc = new jsPDF({ unit: "mm", format: [width, 1000], compress: true });
+  const doc = new jsPDF({ unit: "mm", format: [width, 400] });
   let y = margin + 1;
   const setFont = (size: number, bold: boolean, family: "helvetica" | "courier" = "helvetica") => {
     doc.setFont(family, bold ? "bold" : "normal");
