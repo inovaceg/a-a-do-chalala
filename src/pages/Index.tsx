@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import PaymentCheckout from "@/components/PaymentCheckout";
 import CouponStartDialog, { type CouponCustomer, type CouponSelection, type DeliveryCourier } from "@/components/CouponStartDialog";
 import DashboardDataSync from "@/components/DashboardDataSync";
+import DashboardDeliveries from "@/components/DashboardDeliveries";
 import TeamManagement from "@/components/TeamManagement";
 import SalesManagement from "@/components/SalesManagement";
 import CustomerManagement from "@/components/CustomerManagement";
@@ -562,6 +563,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     <CatalogCostTabs active={active === "Produtos & estoque" && role === "admin"} products={catalogProducts} extras={extras} />
     <ExtraManagement active={active === "Produtos & estoque" && role === "admin"} extras={extras} onSaved={saved => setExtras(current => [...current.filter(extra => extra.id !== saved.id), saved].sort((a, b) => a.name.localeCompare(b.name)))} />
     <DashboardDataSync active={active === "Visão geral"} productCount={catalogProducts.filter(product => product.is_active !== false).length} extraCount={extras.length} />
+    <DashboardDeliveries active={active === "Visão geral"} />
   </div>;
 }
 function ActiveIcon({ active }: { active: string }) { const Icon = active === "Clientes" ? Users : active === "Financeiro" ? Wallet : active === "Vendas" ? Banknote : Boxes; return <Icon size={27}/>; }
