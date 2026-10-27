@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Bike, CalendarDays, CreditCard, Package, ReceiptText, Users } from "lucide-react";
 import LocalityDeliveryReport from "./LocalityDeliveryReport";
 import "./sales-report-panel.css";
@@ -40,11 +40,12 @@ export function SalesReportTabs({ value, onChange }: { value: ReportType; onChan
   return <div className="sales-report-tabs" role="tablist" aria-label="Relatórios de vendas">{tabs.map(tab => <button key={tab.id} role="tab" aria-selected={value === tab.id} className={value === tab.id ? "active" : ""} onClick={() => onChange(tab.id)}><tab.icon size={16}/>{tab.label}</button>)}</div>;
 }
 
-export default function SalesReportPanel({ report, sales }: { report: ReportType; sales: ReportSale[] }) {
+export default function SalesReportPanel({ report, sales, onDateRangeChange }: { report: ReportType; sales: ReportSale[]; onDateRangeChange?: (fromDate: string, toDate: string) => void }) {
   const today = localDay(new Date().toString());
   const monthStart = `${today.slice(0, 8)}01`;
   const [fromDate, setFromDate] = useState(monthStart);
   const [toDate, setToDate] = useState(today);
+  useEffect(() => { onDateRangeChange?.(fromDate, toDate); }, [fromDate, toDate, onDateRangeChange]);
   const rangeSales = useMemo(() => sales.filter(sale => sale.status === "completed" && localDay(sale.created_at) >= fromDate && localDay(sale.created_at) <= toDate), [sales, fromDate, toDate]);
 
   const dailyRows = useMemo(() => {
