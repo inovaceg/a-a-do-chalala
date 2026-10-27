@@ -3,7 +3,6 @@ import { Ban, Pencil, Plus, Printer, RefreshCw, Trash2, X } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { supabase } from "@/integrations/supabase/client";
 import SalesReportPanel, { SalesReportTabs, type ReportType } from "./SalesReportPanel";
-import LocalityDeliveryReport from "./LocalityDeliveryReport";
 import "./sales-management.css";
 import "./sales-management-operator.css";
 import "./sales-deletion.css";
