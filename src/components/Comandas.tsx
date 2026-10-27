@@ -779,7 +779,7 @@ export default function Comandas(
             ? `Olá, ${selected.customer_name.trim()}! 💜`
             : "Olá! 💜";
         const text = [
-            "🍇 *AÇAÍ DO CHALALÁ*",
+            "🍧 *AÇAÍ DO CHALALÁ*",
             "*COMPROVANTE DE CONSUMO*",
             "",
             greeting,
