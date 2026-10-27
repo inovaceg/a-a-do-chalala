@@ -21,7 +21,7 @@ import "./coupon-receipt.css";
 
 type Extra = { id?: string; name: string; price: number; cost_price?: number; is_active?: boolean };
 type ComboComponent = { id: string; name: string; type: "product"; quantity: number };
-type Product = { id?: string; name: string; category: string; price: number; cost_price?: number; color: string; emoji: string; kind?: "combo" | "product"; extras?: Extra[]; combo_items?: ComboComponent[]; is_active?: boolean };
+type Product = { id?: string; name: string; category: string; price: number; cost_price?: number; color: string; emoji: string; image_path?: string | null; kind?: "combo" | "product"; extras?: Extra[]; combo_items?: ComboComponent[]; is_active?: boolean };
 type CartItem = { id: number; product: Product; extras: Extra[] };
 type PaymentMethod = "Dinheiro" | "Cartão de débito" | "Cartão de crédito" | "Pix" | "Vale alimentação" | "Crediário";
 type PaymentLine = { method: PaymentMethod; amount: number };
@@ -35,6 +35,7 @@ const initialProducts: Product[] = [
 ];
 const navItems = [{ label: "Visão geral", icon: LayoutDashboard }, { label: "PDV", icon: ShoppingCart }, { label: "Vendas", icon: Banknote }, { label: "Caixa", icon: Wallet }, { label: "Produtos & estoque", icon: Boxes }, { label: "Clientes", icon: Users }, { label: "Financeiro", icon: Wallet }, { label: "Cadastros", icon: UserCog }];
 const money = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const productImageUrl = (path?: string | null) => path ? supabase.storage.from("product-images").getPublicUrl(path).data.publicUrl : "";
 const loadProducts = (): Product[] => { try { const stored = localStorage.getItem("chalala-products"); return stored ? JSON.parse(stored) as Product[] : initialProducts; } catch { return initialProducts; } };
 
 export default function Index({ role, displayName, email }: { role: "admin" | "operator"; displayName: string; email: string }) {
@@ -69,16 +70,25 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
   const [formCategory, setFormCategory] = useState("Açaí");
   const [formCombo, setFormCombo] = useState(false);
   const [formExtras, setFormExtras] = useState<string[]>([]);
+  const [formImage, setFormImage] = useState<File | null>(null);
+  const [formImagePreview, setFormImagePreview] = useState("");
+  const [removeProductImage, setRemoveProductImage] = useState(false);
   const [cashSession, setCashSession] = useState<{ id: string; register_id: string } | null>(null);
   const [checkoutRequestKey, setCheckoutRequestKey] = useState<string | null>(null);
   const [checkoutSaving, setCheckoutSaving] = useState(false);
+  useEffect(() => {
+    if (!formImage) { setFormImagePreview(""); return; }
+    const preview = URL.createObjectURL(formImage);
+    setFormImagePreview(preview);
+    return () => URL.revokeObjectURL(preview);
+  }, [formImage]);
   useEffect(() => {
     document.querySelector<HTMLElement>(".help-card b")!.textContent = "Precisa de suporte para o sistema?";
     document.querySelector<HTMLAnchorElement>(".help-card a")?.setAttribute("href", "https://wa.me/5532984022567");
   }, []);
   useEffect(() => {
     let mounted = true;
-    const catalogQuery = supabase.from("products").select("id,name,category,price,cost_price,color,emoji,kind,extras,combo_items,is_active");
+    const catalogQuery = supabase.from("products").select("id,name,category,price,cost_price,color,emoji,kind,extras,combo_items,is_active,image_path");
     if (role !== "admin") catalogQuery.eq("is_active", true);
     Promise.all([
       catalogQuery,
@@ -188,9 +198,27 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
         return name ? { id, name, type: "product" as const, quantity: 1 } : null;
       }).filter((component): component is ComboComponent => component !== null);
       const category = `${formCategory}${formCombo ? " • Combo" : ""}`;
-      const { data, error } = await supabase.rpc("save_product", { p_product_id: editingProduct?.id ?? null, p_name: name, p_category: category, p_price: price, p_cost_price: costPrice, p_kind: formCombo ? "combo" : "product", p_extras: productExtras, p_combo_items: selectedComboItems });
-      if (error || !data) { setNotice("Não foi possível salvar o produto."); return; }
+      if (formImage && (!['image/jpeg', 'image/png', 'image/webp'].includes(formImage.type) || formImage.size > 5 * 1024 * 1024)) {
+        setNotice("Escolha uma imagem JPG, PNG ou WebP de até 5 MB.");
+        return;
+      }
+      let imagePath = removeProductImage ? null : editingProduct?.image_path ?? null;
+      let uploadedImagePath: string | null = null;
+      if (formImage) {
+        const extension = formImage.type === "image/jpeg" ? "jpg" : formImage.type === "image/png" ? "png" : "webp";
+        uploadedImagePath = `products/${crypto.randomUUID()}.${extension}`;
+        const { error: uploadError } = await supabase.storage.from("product-images").upload(uploadedImagePath, formImage, { contentType: formImage.type, upsert: false, cacheControl: "31536000" });
+        if (uploadError) { setNotice("Não foi possível enviar a foto do produto."); return; }
+        imagePath = uploadedImagePath;
+      }
+      const { data, error } = await supabase.rpc("save_product", { p_product_id: editingProduct?.id ?? null, p_name: name, p_category: category, p_price: price, p_cost_price: costPrice, p_kind: formCombo ? "combo" : "product", p_extras: productExtras, p_combo_items: selectedComboItems, p_image_path: imagePath });
+      if (error || !data) {
+        if (uploadedImagePath) await supabase.storage.from("product-images").remove([uploadedImagePath]);
+        setNotice(error?.message || "Não foi possível salvar o produto.");
+        return;
+      }
       const saved = { ...(data as Product), price: Number((data as Product).price), cost_price: Number((data as Product).cost_price), color: editingProduct?.color ?? "lilac", emoji: editingProduct?.emoji ?? (formCombo ? "🍨" : "🥣"), extras: productExtras };
+      if (editingProduct?.image_path && editingProduct.image_path !== imagePath) await supabase.storage.from("product-images").remove([editingProduct.image_path]);
       saveProducts(editingProduct ? catalogProducts.map(product => product.id === editingProduct.id ? saved : product) : [...catalogProducts, saved]);
       setNotice(editingProduct ? "Produto atualizado com sucesso." : formCombo ? "Combo cadastrado com sucesso." : "Produto cadastrado com sucesso.");
     } else {
@@ -204,6 +232,8 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     setFormPrice("");
     setFormCostPrice("");
     setFormExtras([]);
+    setFormImage(null);
+    setRemoveProductImage(false);
     setDialog(null);
     window.setTimeout(() => setNotice(""), 3000);
   };
@@ -466,7 +496,7 @@ export default function Index({ role, displayName, email }: { role: "admin" | "o
     return () => { identity.remove(); feeRow?.remove(); };
   }, [closedSale]);
   const totalOf = (item: CartItem) => item.product.price + item.extras.reduce((sum, e) => sum + e.price, 0);
-  const openForm = (type: "product" | "extra", product?: Product) => { setEditingProduct(product ?? null); setFormName(product?.name ?? ""); setFormPrice(product ? String(product.price) : ""); setFormCostPrice(product ? String(product.cost_price ?? 0) : ""); setFormCategory(product?.category.split(" • ")[0] ?? "Açaí"); setFormCombo(product?.kind === "combo" || Boolean(product?.category.includes("Combo"))); setFormExtras(product?.extras?.map(extra => extra.name) ?? []); setDialog(type); };
+  const openForm = (type: "product" | "extra", product?: Product) => { setEditingProduct(product ?? null); setFormName(product?.name ?? ""); setFormPrice(product ? String(product.price) : ""); setFormCostPrice(product ? String(product.cost_price ?? 0) : ""); setFormCategory(product?.category.split(" • ")[0] ?? "Açaí"); setFormCombo(product?.kind === "combo" || Boolean(product?.category.includes("Combo"))); setFormExtras(product?.extras?.map(extra => extra.name) ?? []); setFormImage(null); setRemoveProductImage(false); setDialog(type); };
   useEffect(() => {
     if (role !== "admin" || active !== "Produtos & estoque") return;
     const rows = Array.from(document.querySelectorAll<HTMLElement>(".catalog-list-row"));
